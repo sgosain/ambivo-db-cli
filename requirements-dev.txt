@@ -1,0 +1,24 @@
+# Ambivo Multi-Database CLI - Development Requirements
+# For contributors and developers
+# Install with: pip install -r requirements-dev.txt
+
+# Include full requirements
+-r requirements-full.txt
+
+# Development Tools
+pytest>=7.0.0               # Testing framework
+pytest-cov>=4.0.0           # Coverage reporting
+black>=22.0.0                # Code formatting
+flake8>=5.0.0                # Code linting
+mypy>=1.0.0                  # Type checking
+isort>=5.11.0                # Import sorting
+
+# Documentation
+sphinx>=5.0.0               # Documentation generation
+sphinx-rtd-theme>=1.0.0     # Read the Docs theme
+
+# Optional Analytics Tools (for data analysis workflows)
+numpy>=1.21.0               # Numerical computing
+matplotlib>=3.5.0           # Plotting
+seaborn>=0.11.0             # Statistical visualization
+jupyter>=1.0.0              # Interactive notebooks

@@ -1,0 +1,19 @@
+# Ambivo Multi-Database CLI - Full Requirements
+# All database engines + enhanced CLI features
+# Install with: pip install -r requirements.txt
+
+# Core Dependencies (Required)
+tabulate>=0.9.0              # Beautiful table formatting for query results
+pandas>=1.5.0                # CSV processing and data manipulation
+sqlalchemy>=2.0.0            # Universal database engine for CSV import
+
+# All Database Drivers
+mysql-connector-python>=8.0.33    # MySQL support (default database)
+psycopg2-binary>=2.9.5            # PostgreSQL support
+duckdb>=0.9.0                      # DuckDB analytics database
+
+# SQLite Support (Built into Python - no additional package needed)
+
+# CLI Enhancements (Command history, tab completion, better UX)
+readline>=6.2.4.1 ; sys_platform != "win32"     # Unix/Linux/macOS
+pyreadline3>=3.4.1 ; sys_platform == "win32"    # Windows alternative

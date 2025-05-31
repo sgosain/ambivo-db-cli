@@ -1,0 +1,51 @@
+# Ambivo Multi-Database CLI - Database-Specific Requirements
+# Choose and install only what you need
+
+# =============================================
+# CORE (Always Required)
+# =============================================
+# tabulate>=0.9.0
+# pandas>=1.5.0
+# sqlalchemy>=2.0.0
+
+# =============================================
+# DATABASE-SPECIFIC INSTALLATIONS
+# =============================================
+
+# MySQL Only (Your Original Use Case)
+# pip install tabulate pandas sqlalchemy mysql-connector-python
+
+# PostgreSQL Only
+# pip install tabulate pandas sqlalchemy psycopg2-binary
+
+# DuckDB Only (Great for Analytics/Testing)
+# pip install tabulate pandas sqlalchemy duckdb
+
+# SQLite Only (No Additional Dependencies)
+# pip install tabulate pandas sqlalchemy
+
+# Multiple Databases
+# pip install tabulate pandas sqlalchemy mysql-connector-python psycopg2-binary duckdb
+
+# =============================================
+# CLI ENHANCEMENTS (Optional)
+# =============================================
+
+# Command History + Tab Completion (Linux/macOS)
+# pip install readline
+
+# Command History + Tab Completion (Windows)
+# pip install pyreadline3
+
+# =============================================
+# QUICK INSTALLATION COMMANDS
+# =============================================
+
+# Minimal (MySQL + SQLite):
+# pip install -r requirements-minimal.txt
+
+# Full Experience (All Databases):
+# pip install -r requirements-full.txt
+
+# Development Setup:
+# pip install -r requirements-dev.txt
