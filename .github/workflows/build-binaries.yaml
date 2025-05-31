@@ -1,0 +1,263 @@
+# .github/workflows/build-binaries.yml
+# Fixed version with job dependencies and improved release handling
+
+name: Build Multi-Platform Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  # Create release first (needed for upload URLs)
+  create_release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Ambivo Database CLI Suite ${{ github.ref_name }}
+        body: |
+          ## Ambivo Database CLI Suite Release ${{ github.ref_name }}
+          
+          ### 📦 Downloads
+          - **Linux x64**: `ambivo-db-cli-linux-x64.tar.gz`
+          - **macOS Intel**: `ambivo-db-cli-macos-x64.tar.gz`  
+          - **macOS Apple Silicon**: `ambivo-db-cli-macos-arm64.tar.gz`
+          - **Windows x64**: `ambivo-db-cli-windows-x64.zip`
+          
+          ### ✨ Features
+          - ✅ Standalone executables (no Python installation required)
+          - ✅ Full database connectivity (MySQL, PostgreSQL, SQLite, DuckDB)
+          - ✅ CSV import capabilities with intelligent mapping
+          - ✅ Command history and tab completion
+          - ✅ Professional table formatting
+          - ✅ Optimized binaries with UPX compression
+          
+          ### 🚀 Quick Start
+          1. Download the appropriate archive for your platform
+          2. Extract and run `install.sh` (Unix) or `install.bat` (Windows)
+          3. Test: `ambivo-mysql-cli --help`
+          
+          ### 💡 Binary Sizes
+          - **MySQL CLI**: ~12MB (MySQL-only, optimized)
+          - **Multi-Database CLI**: ~18MB (all databases)
+          
+          Built with ❤️ by Hemant Gosain 'Sunny' at Ambivo
+        draft: false
+        prerelease: false
+
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: [create_release]  # Wait for release creation
+    if: always()  # Run even if create_release is skipped (for manual triggers)
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            ext: ""
+          - os: macos-latest
+            platform: macos
+            arch: x64
+            ext: ""
+          - os: macos-14  # Apple Silicon
+            platform: macos
+            arch: arm64
+            ext: ""
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            ext: ".exe"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+
+    - name: Build MySQL CLI
+      run: |
+        pyinstaller specs/mysql_cli.spec \
+          --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+          --workpath "build/mysql_cli" \
+          --clean
+
+    - name: Build Multi-DB CLI
+      run: |
+        pyinstaller specs/db_cli.spec \
+          --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+          --workpath "build/db_cli" \
+          --clean
+
+    - name: Create convenience scripts (Unix)
+      if: matrix.platform != 'windows'
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        
+        # MySQL convenience script
+        cat > mysql << 'EOF'
+        #!/bin/bash
+        DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        "$DIR/ambivo-mysql-cli" "$@"
+        EOF
+        chmod +x mysql
+        
+        # DB CLI convenience script  
+        cat > dbcli << 'EOF'
+        #!/bin/bash
+        DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        "$DIR/ambivo-db-cli" "$@"
+        EOF
+        chmod +x dbcli
+
+    - name: Create convenience scripts (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        
+        # MySQL convenience batch
+        echo '@echo off' > mysql.bat
+        echo '"%~dp0ambivo-mysql-cli.exe" %*' >> mysql.bat
+        
+        # DB CLI convenience batch
+        echo '@echo off' > dbcli.bat  
+        echo '"%~dp0ambivo-db-cli.exe" %*' >> dbcli.bat
+
+    - name: Create README
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        cat > README.txt << 'EOF'
+        # Ambivo Database CLI Suite - ${{ matrix.platform }} ${{ matrix.arch }}
+        
+        ## Quick Start
+        
+        ### MySQL CLI
+        ./ambivo-mysql-cli${{ matrix.ext }} -H localhost -u root -p
+        
+        ### Multi-Database CLI  
+        ./ambivo-db-cli${{ matrix.ext }} mysql -H localhost -u root -p -d mydb
+        ./ambivo-db-cli${{ matrix.ext }} postgresql -H localhost -u postgres -p -d mydb
+        ./ambivo-db-cli${{ matrix.ext }} sqlite -f database.db
+        ./ambivo-db-cli${{ matrix.ext }} duckdb -f analytics.db
+        
+        ## Features
+        - Standalone executables (no Python required)
+        - Full database connectivity  
+        - CSV import with intelligent mapping
+        - Command history and tab completion
+        - Professional table formatting
+        
+        ## Support
+        Email: sgosain@ambivo.com
+        Company: https://www.ambivo.com
+        
+        Built by Hemant Gosain 'Sunny' at Ambivo
+        EOF
+
+    - name: Create install script (Unix)
+      if: matrix.platform != 'windows'
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        cat > install.sh << 'EOF'
+        #!/bin/bash
+        echo "Installing Ambivo Database CLI Suite..."
+        
+        INSTALL_DIR="$HOME/bin"
+        mkdir -p "$INSTALL_DIR"
+        
+        cp ambivo-mysql-cli "$INSTALL_DIR/"
+        cp ambivo-db-cli "$INSTALL_DIR/"
+        cp mysql "$INSTALL_DIR/"
+        cp dbcli "$INSTALL_DIR/"
+        
+        chmod +x "$INSTALL_DIR"/*
+        
+        echo "✓ Installed to: $INSTALL_DIR"
+        echo "Add to PATH: export PATH=\$PATH:$INSTALL_DIR"
+        EOF
+        chmod +x install.sh
+
+    - name: Create install script (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        echo '@echo off' > install.bat
+        echo 'echo Installing Ambivo Database CLI Suite...' >> install.bat
+        echo 'set "INSTALL_DIR=%USERPROFILE%\ambivo-cli"' >> install.bat
+        echo 'mkdir "%INSTALL_DIR%" 2>nul' >> install.bat
+        echo 'copy *.exe "%INSTALL_DIR%\" >nul' >> install.bat
+        echo 'copy *.bat "%INSTALL_DIR%\" >nul' >> install.bat
+        echo 'echo ✓ Installed to: %INSTALL_DIR%' >> install.bat
+        echo 'echo Add to PATH: %INSTALL_DIR%' >> install.bat
+        echo 'pause' >> install.bat
+
+    - name: Test binaries
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        ./ambivo-mysql-cli${{ matrix.ext }} --help
+        ./ambivo-db-cli${{ matrix.ext }} --help
+
+    - name: Check binary sizes
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        echo "Binary sizes:"
+        ls -lh ambivo-*${{ matrix.ext }}
+
+    - name: Create archive
+      run: |
+        cd dist
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          # Use PowerShell Compress-Archive on Windows
+          powershell Compress-Archive -Path "${{ matrix.platform }}-${{ matrix.arch }}\*" -DestinationPath "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip"
+        else
+          tar -czf "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" "${{ matrix.platform }}-${{ matrix.arch }}"
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}
+        path: |
+          dist/${{ matrix.platform }}-${{ matrix.arch }}/*
+        retention-days: 30
+
+    - name: Get archive filename
+      id: archive
+      run: |
+        cd dist
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip" >> $GITHUB_OUTPUT
+        else
+          echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Upload release assets
+      if: startsWith(github.ref, 'refs/tags/') && needs.create_release.outputs.upload_url
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create_release.outputs.upload_url }}
+        asset_path: dist/${{ steps.archive.outputs.filename }}
+        asset_name: ${{ steps.archive.outputs.filename }}
+        asset_content_type: application/octet-stream

@@ -3,7 +3,7 @@
 # Install with: pip install -r requirements-dev.txt
 
 # Include full requirements
--r requirements-full.txt
+-r requirements.txt
 
 # Development Tools
 pytest>=7.0.0               # Testing framework
@@ -12,6 +12,7 @@ black>=22.0.0                # Code formatting
 flake8>=5.0.0                # Code linting
 mypy>=1.0.0                  # Type checking
 isort>=5.11.0                # Import sorting
+pyinstaller>=5.0.0            # Packaging tool
 
 # Documentation
 sphinx>=5.0.0               # Documentation generation
