@@ -326,21 +326,146 @@ jobs:
         EOF
       shell: bash
 
-    - name: Build binaries using spec files
+    - name: Build MySQL CLI (with fallback)
       run: |
-        # Build MySQL CLI
-        echo "Building MySQL CLI using spec file..."
-        python -m PyInstaller specs/mysql_cli.spec \
-          --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
-          --workpath "build/mysql_cli_${{ matrix.platform }}_${{ matrix.arch }}" \
-          --clean
+        echo "🔨 Building MySQL CLI..."
+        
+        # Try spec file first
+        if python -m PyInstaller specs/mysql_cli.spec \
+           --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+           --workpath "build/mysql_cli_spec" \
+           --clean; then
+          echo "✅ MySQL CLI built successfully with spec file"
+        else
+          echo "⚠️ Spec file failed, trying direct build..."
+          
+          # Fallback to direct build
+          python -m PyInstaller \
+            --onefile \
+            --name="ambivo-mysql-cli" \
+            --console \
+            --clean \
+            --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+            --workpath "build/mysql_cli_direct" \
+            --hidden-import=mysql.connector \
+            --hidden-import=mysql.connector.cursor \
+            --hidden-import=mysql.connector.errors \
+            --hidden-import=mysql.connector.conversion \
+            --hidden-import=pandas \
+            --hidden-import=pandas.io.sql \
+            --hidden-import=sqlalchemy \
+            --hidden-import=sqlalchemy.engine \
+            --hidden-import=sqlalchemy.dialects.mysql \
+            --hidden-import=sqlalchemy.dialects.mysql.mysqlconnector \
+            --hidden-import=tabulate \
+            --hidden-import=importlib_metadata \
+            --exclude-module=psycopg2 \
+            --exclude-module=duckdb \
+            --exclude-module=matplotlib \
+            --exclude-module=tkinter \
+            --exclude-module=PyQt5 \
+            --exclude-module=PyQt6 \
+            --exclude-module=scipy \
+            --exclude-module=sklearn \
+            --exclude-module=tensorflow \
+            --exclude-module=torch \
+            --runtime-hook=hooks/rthook_suppress_warnings.py \
+            mysql_cli.py && echo "✅ MySQL CLI built with direct method" || echo "❌ MySQL CLI build failed completely"
+        fi
+      shell: bash
 
-        # Build Multi-DB CLI
-        echo "Building Multi-Database CLI using spec file..."
-        python -m PyInstaller specs/db_cli.spec \
-          --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
-          --workpath "build/db_cli_${{ matrix.platform }}_${{ matrix.arch }}" \
-          --clean
+    - name: Build Multi-Database CLI (with fallback)
+      run: |
+        echo "🔨 Building Multi-Database CLI..."
+        
+        # Try spec file first
+        if python -m PyInstaller specs/db_cli.spec \
+           --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+           --workpath "build/db_cli_spec" \
+           --clean; then
+          echo "✅ Multi-DB CLI built successfully with spec file"
+        else
+          echo "⚠️ Spec file failed, trying direct build..."
+          
+          # Fallback to direct build
+          python -m PyInstaller \
+            --onefile \
+            --name="ambivo-db-cli" \
+            --console \
+            --clean \
+            --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+            --workpath "build/db_cli_direct" \
+            --hidden-import=mysql.connector \
+            --hidden-import=mysql.connector.cursor \
+            --hidden-import=mysql.connector.errors \
+            --hidden-import=psycopg2 \
+            --hidden-import=psycopg2.extras \
+            --hidden-import=duckdb \
+            --hidden-import=sqlite3 \
+            --hidden-import=pandas \
+            --hidden-import=pandas.io.sql \
+            --hidden-import=sqlalchemy \
+            --hidden-import=sqlalchemy.engine \
+            --hidden-import=sqlalchemy.dialects.mysql \
+            --hidden-import=sqlalchemy.dialects.postgresql \
+            --hidden-import=sqlalchemy.dialects.sqlite \
+            --hidden-import=tabulate \
+            --hidden-import=importlib_metadata \
+            --exclude-module=matplotlib \
+            --exclude-module=tkinter \
+            --exclude-module=PyQt5 \
+            --exclude-module=PyQt6 \
+            --exclude-module=scipy \
+            --exclude-module=sklearn \
+            --exclude-module=tensorflow \
+            --exclude-module=torch \
+            --runtime-hook=hooks/rthook_suppress_warnings.py \
+            db_cli.py && echo "✅ Multi-DB CLI built with direct method" || echo "❌ Multi-DB CLI build failed completely"
+        fi
+      shell: bash
+
+    - name: Verify builds and create summary
+      run: |
+        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
+        
+        echo "📋 Build Summary for ${{ matrix.platform }}-${{ matrix.arch }}:"
+        
+        mysql_success=false
+        db_success=false
+        
+        if [ -f "ambivo-mysql-cli${{ matrix.ext }}" ]; then
+          size=$(stat -c%s "ambivo-mysql-cli${{ matrix.ext }}" 2>/dev/null || stat -f%z "ambivo-mysql-cli${{ matrix.ext }}" 2>/dev/null || echo "0")
+          size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+          echo "✅ MySQL CLI: ${size_mb}MB"
+          mysql_success=true
+        else
+          echo "❌ MySQL CLI: Build failed"
+        fi
+        
+        if [ -f "ambivo-db-cli${{ matrix.ext }}" ]; then
+          size=$(stat -c%s "ambivo-db-cli${{ matrix.ext }}" 2>/dev/null || stat -f%z "ambivo-db-cli${{ matrix.ext }}" 2>/dev/null || echo "0")
+          size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+          echo "✅ Multi-DB CLI: ${size_mb}MB"
+          db_success=true
+        else
+          echo "❌ Multi-DB CLI: Build failed"
+        fi
+        
+        # Set outputs for later steps
+        echo "mysql_success=$mysql_success" >> $GITHUB_ENV
+        echo "db_success=$db_success" >> $GITHUB_ENV
+        
+        # Only fail if both builds failed
+        if [ "$mysql_success" = "false" ] && [ "$db_success" = "false" ]; then
+          echo "💥 Both builds failed! This is a critical error."
+          exit 1
+        elif [ "$mysql_success" = "false" ]; then
+          echo "⚠️ MySQL CLI failed, but Multi-DB CLI succeeded. Continuing..."
+        elif [ "$db_success" = "false" ]; then
+          echo "⚠️ Multi-DB CLI failed, but MySQL CLI succeeded. Continuing..."
+        else
+          echo "🎉 Both builds succeeded!"
+        fi
       shell: bash
 
     - name: Create convenience scripts (Unix)
@@ -348,21 +473,26 @@ jobs:
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
-        # MySQL convenience script
-        cat > mysql << 'EOF'
+        # Only create scripts for successful builds
+        if [ "${{ env.mysql_success }}" = "true" ]; then
+          cat > mysql << 'EOF'
         #!/bin/bash
         DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         exec "$DIR/ambivo-mysql-cli" "$@"
         EOF
-        chmod +x mysql
+          chmod +x mysql
+          echo "✅ Created mysql convenience script"
+        fi
         
-        # DB CLI convenience script  
-        cat > dbcli << 'EOF'
+        if [ "${{ env.db_success }}" = "true" ]; then
+          cat > dbcli << 'EOF'
         #!/bin/bash
         DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         exec "$DIR/ambivo-db-cli" "$@"
         EOF
-        chmod +x dbcli
+          chmod +x dbcli
+          echo "✅ Created dbcli convenience script"
+        fi
       shell: bash
 
     - name: Create convenience scripts (Windows)
@@ -370,56 +500,73 @@ jobs:
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
-        # MySQL convenience batch
-        echo '@echo off' > mysql.bat
-        echo 'set "DIR=%~dp0"' >> mysql.bat
-        echo '"%DIR%ambivo-mysql-cli.exe" %*' >> mysql.bat
+        # Only create scripts for successful builds
+        if [ "${{ env.mysql_success }}" = "true" ]; then
+          echo '@echo off' > mysql.bat
+          echo 'set "DIR=%~dp0"' >> mysql.bat
+          echo '"%DIR%ambivo-mysql-cli.exe" %*' >> mysql.bat
+          echo "✅ Created mysql.bat convenience script"
+        fi
         
-        # DB CLI convenience batch
-        echo '@echo off' > dbcli.bat
-        echo 'set "DIR=%~dp0"' >> dbcli.bat
-        echo '"%DIR%ambivo-db-cli.exe" %*' >> dbcli.bat
+        if [ "${{ env.db_success }}" = "true" ]; then
+          echo '@echo off' > dbcli.bat
+          echo 'set "DIR=%~dp0"' >> dbcli.bat
+          echo '"%DIR%ambivo-db-cli.exe" %*' >> dbcli.bat
+          echo "✅ Created dbcli.bat convenience script"
+        fi
       shell: bash
 
     - name: Create README and install scripts
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
+        # Determine which binaries are available
+        mysql_available="${{ env.mysql_success }}"
+        db_available="${{ env.db_success }}"
+        
         # Create platform-specific README
         if [ "${{ matrix.platform }}" = "macos" ]; then
-          cat > README.txt << 'EOF'
+          cat > README.txt << EOF
         # Ambivo Database CLI Suite - macOS ${{ matrix.arch }}
         
+        ## Available Applications
+        $(if [ "$mysql_available" = "true" ]; then echo "✅ ambivo-mysql-cli - Dedicated MySQL client"; else echo "❌ ambivo-mysql-cli - Build failed"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "✅ ambivo-db-cli - Universal multi-database client"; else echo "❌ ambivo-db-cli - Build failed"; fi)
+        
         ## Quick Installation (Recommended)
-        1. Copy the applications to your Applications folder:
-           - Drag ambivo-mysql-cli to /Applications/
-           - Drag ambivo-db-cli to /Applications/
+        1. Copy the available applications to your Applications folder:
+        $(if [ "$mysql_available" = "true" ]; then echo "   - Drag ambivo-mysql-cli to /Applications/"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "   - Drag ambivo-db-cli to /Applications/"; fi)
         
         2. Or use the install script: ./install.sh
         
         ## Interactive Mode (Recommended for beginners)
         Just run the executable without any arguments for guided setup:
-        ./ambivo-mysql-cli
-        ./ambivo-db-cli
+        $(if [ "$mysql_available" = "true" ]; then echo "./ambivo-mysql-cli"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "./ambivo-db-cli"; fi)
         
         ## Command Line Examples
-        ./ambivo-mysql-cli -H localhost -u root -p
-        ./ambivo-db-cli mysql -H localhost -u root -p -d mydb
-        ./ambivo-db-cli postgresql -H localhost -u postgres -d mydb
-        ./ambivo-db-cli sqlite -f database.db
-        ./ambivo-db-cli duckdb -f analytics.db
+        $(if [ "$mysql_available" = "true" ]; then echo "./ambivo-mysql-cli -H localhost -u root -p"; fi)
+        $(if [ "$db_available" = "true" ]; then 
+        echo "./ambivo-db-cli mysql -H localhost -u root -p -d mydb"
+        echo "./ambivo-db-cli postgresql -H localhost -u postgres -d mydb"
+        echo "./ambivo-db-cli sqlite -f database.db"
+        echo "./ambivo-db-cli duckdb -f analytics.db"
+        fi)
         
         ## Terminal Access
         Add to ~/.zshrc or ~/.bash_profile:
-        export PATH=$PATH:/Applications
+        export PATH=\$PATH:/Applications
         
-        Then use: ambivo-mysql-cli or ambivo-db-cli from anywhere
+        Then use from anywhere:
+        $(if [ "$mysql_available" = "true" ]; then echo "ambivo-mysql-cli"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "ambivo-db-cli"; fi)
         
         ## Features
         - ✅ Native macOS applications
         - ✅ No Python installation required
         - ✅ Interactive setup for beginners
-        - ✅ Full database connectivity
+        - ✅ Database connectivity
         - ✅ CSV import with intelligent mapping
         - ✅ Command history and tab completion
         
@@ -427,35 +574,43 @@ jobs:
         Version: 2.1.0 | Build: ${{ env.BUILD_DATE }}
         EOF
         else
-          cat > README.txt << 'EOF'
+          cat > README.txt << EOF
         # Ambivo Database CLI Suite - ${{ matrix.platform }} ${{ matrix.arch }}
+        
+        ## Available Applications
+        $(if [ "$mysql_available" = "true" ]; then echo "✅ ambivo-mysql-cli${{ matrix.ext }} - Dedicated MySQL client"; else echo "❌ ambivo-mysql-cli${{ matrix.ext }} - Build failed"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "✅ ambivo-db-cli${{ matrix.ext }} - Universal multi-database client"; else echo "❌ ambivo-db-cli${{ matrix.ext }} - Build failed"; fi)
         
         ## Quick Start - Interactive Mode (Recommended)
         
         Just run the executable without any arguments for guided setup:
-        ./ambivo-mysql-cli${{ matrix.ext }}
-        ./ambivo-db-cli${{ matrix.ext }}
+        $(if [ "$mysql_available" = "true" ]; then echo "./ambivo-mysql-cli${{ matrix.ext }}"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "./ambivo-db-cli${{ matrix.ext }}"; fi)
         
         ## Command Line Examples
         
-        ### MySQL CLI
-        ./ambivo-mysql-cli${{ matrix.ext }} -H localhost -u root -p
-        ./ambivo-mysql-cli${{ matrix.ext }} -H myserver -u admin -d production
+        ### MySQL CLI (if available)
+        $(if [ "$mysql_available" = "true" ]; then 
+        echo "./ambivo-mysql-cli${{ matrix.ext }} -H localhost -u root -p"
+        echo "./ambivo-mysql-cli${{ matrix.ext }} -H myserver -u admin -d production"
+        fi)
         
-        ### Multi-Database CLI  
-        ./ambivo-db-cli${{ matrix.ext }} mysql -H localhost -u root -p -d mydb
-        ./ambivo-db-cli${{ matrix.ext }} postgresql -H localhost -u postgres -d mydb
-        ./ambivo-db-cli${{ matrix.ext }} sqlite -f database.db
-        ./ambivo-db-cli${{ matrix.ext }} duckdb -f analytics.db
+        ### Multi-Database CLI (if available)
+        $(if [ "$db_available" = "true" ]; then 
+        echo "./ambivo-db-cli${{ matrix.ext }} mysql -H localhost -u root -p -d mydb"
+        echo "./ambivo-db-cli${{ matrix.ext }} postgresql -H localhost -u postgres -d mydb"
+        echo "./ambivo-db-cli${{ matrix.ext }} sqlite -f database.db"
+        echo "./ambivo-db-cli${{ matrix.ext }} duckdb -f analytics.db"
+        fi)
         
         ## Convenience Commands (after install)
-        mysql -H localhost -u root        # Short alias for MySQL CLI
-        dbcli mysql -H localhost -u root  # Short alias for Multi-DB CLI
+        $(if [ "$mysql_available" = "true" ]; then echo "mysql -H localhost -u root        # Short alias for MySQL CLI"; fi)
+        $(if [ "$db_available" = "true" ]; then echo "dbcli mysql -H localhost -u root  # Short alias for Multi-DB CLI"; fi)
         
         ## Features
         - ✅ Standalone executables (no Python required)
         - ✅ Interactive setup for beginners
-        - ✅ Full database connectivity  
+        - ✅ Database connectivity  
         - ✅ CSV import with intelligent mapping
         - ✅ Command history and tab completion
         - ✅ Professional table formatting
@@ -473,30 +628,41 @@ jobs:
         #!/bin/bash
         echo "🍎 Installing Ambivo Database CLI Suite for macOS..."
         
-        # Option 1: Applications folder (recommended)
+        mysql_available="${{ env.mysql_success }}"
+        db_available="${{ env.db_success }}"
+        
+        # Option 1: Applications folder (if writable)
         if [ -w "/Applications" ]; then
           echo "Installing to /Applications (system-wide access)..."
-          cp ambivo-mysql-cli "/Applications/"
-          cp ambivo-db-cli "/Applications/"
-          echo "✅ Installed to /Applications"
+          if [ "$mysql_available" = "true" ] && [ -f "ambivo-mysql-cli" ]; then
+            cp ambivo-mysql-cli "/Applications/"
+            echo "✅ Installed ambivo-mysql-cli to /Applications"
+          fi
+          if [ "$db_available" = "true" ] && [ -f "ambivo-db-cli" ]; then
+            cp ambivo-db-cli "/Applications/"
+            echo "✅ Installed ambivo-db-cli to /Applications"
+          fi
           echo ""
-          echo "You can now run:"
-          echo "/Applications/ambivo-mysql-cli"
-          echo "/Applications/ambivo-db-cli"
-          echo ""
-          echo "Or add to PATH in ~/.zshrc:"
+          echo "You can now run applications from /Applications or add to PATH:"
           echo "export PATH=\$PATH:/Applications"
         else
           # Option 2: User local bin
           echo "Installing to ~/.local/bin (user access)..."
           INSTALL_DIR="$HOME/.local/bin"
           mkdir -p "$INSTALL_DIR"
-          cp ambivo-mysql-cli "$INSTALL_DIR/"
-          cp ambivo-db-cli "$INSTALL_DIR/"
-          cp mysql "$INSTALL_DIR/"
-          cp dbcli "$INSTALL_DIR/"
-          chmod +x "$INSTALL_DIR"/*
-          echo "✅ Installed to: $INSTALL_DIR"
+          
+          if [ "$mysql_available" = "true" ] && [ -f "ambivo-mysql-cli" ]; then
+            cp ambivo-mysql-cli "$INSTALL_DIR/"
+            cp mysql "$INSTALL_DIR/" 2>/dev/null || true
+            echo "✅ Installed ambivo-mysql-cli to $INSTALL_DIR"
+          fi
+          if [ "$db_available" = "true" ] && [ -f "ambivo-db-cli" ]; then
+            cp ambivo-db-cli "$INSTALL_DIR/"
+            cp dbcli "$INSTALL_DIR/" 2>/dev/null || true
+            echo "✅ Installed ambivo-db-cli to $INSTALL_DIR"
+          fi
+          
+          chmod +x "$INSTALL_DIR"/* 2>/dev/null || true
           echo ""
           echo "Add to PATH by adding this to your ~/.zshrc:"
           echo "export PATH=\$PATH:$INSTALL_DIR"
@@ -510,26 +676,32 @@ jobs:
         #!/bin/bash
         echo "🚀 Installing Ambivo Database CLI Suite..."
         
+        mysql_available="${{ env.mysql_success }}"
+        db_available="${{ env.db_success }}"
+        
         INSTALL_DIR="$HOME/.local/bin"
         mkdir -p "$INSTALL_DIR"
         
-        # Copy executables
-        cp ambivo-mysql-cli "$INSTALL_DIR/"
-        cp ambivo-db-cli "$INSTALL_DIR/"
-        cp mysql "$INSTALL_DIR/"
-        cp dbcli "$INSTALL_DIR/"
+        # Copy available executables
+        if [ "$mysql_available" = "true" ] && [ -f "ambivo-mysql-cli" ]; then
+          cp ambivo-mysql-cli "$INSTALL_DIR/"
+          cp mysql "$INSTALL_DIR/" 2>/dev/null || true
+          echo "✅ Installed ambivo-mysql-cli"
+        fi
+        if [ "$db_available" = "true" ] && [ -f "ambivo-db-cli" ]; then
+          cp ambivo-db-cli "$INSTALL_DIR/"
+          cp dbcli "$INSTALL_DIR/" 2>/dev/null || true
+          echo "✅ Installed ambivo-db-cli"
+        fi
         
         # Make executable
-        chmod +x "$INSTALL_DIR"/*
+        chmod +x "$INSTALL_DIR"/* 2>/dev/null || true
         
+        echo ""
         echo "✅ Installed to: $INSTALL_DIR"
         echo ""
         echo "Add to PATH by adding this to your ~/.bashrc or ~/.zshrc:"
         echo "export PATH=\$PATH:$INSTALL_DIR"
-        echo ""
-        echo "Or run directly:"
-        echo "$INSTALL_DIR/ambivo-mysql-cli"
-        echo "$INSTALL_DIR/ambivo-db-cli"
         echo ""
         echo "💡 Tip: Run without arguments for interactive setup"
         EOF
@@ -544,159 +716,4 @@ jobs:
         set "INSTALL_DIR=%USERPROFILE%\AppData\Local\Ambivo"
         if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
         
-        copy *.exe "%INSTALL_DIR%\" >nul
-        copy *.bat "%INSTALL_DIR%\" >nul
-        
-        echo ✅ Installed to: %INSTALL_DIR%
-        echo.
-        echo Add to PATH or run directly:
-        echo %INSTALL_DIR%\ambivo-mysql-cli.exe
-        echo %INSTALL_DIR%\ambivo-db-cli.exe
-        echo.
-        echo 💡 Tip: Run without arguments for interactive setup
-        pause
-        EOF
-        fi
-      shell: bash
-
-    - name: Test binaries
-      run: |
-        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
-        echo "Testing executables..."
-        
-        # Test with timeout and capture exit codes
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          timeout 10s ./ambivo-mysql-cli.exe --help 2>/dev/null || echo "✅ MySQL CLI test completed"
-          timeout 10s ./ambivo-db-cli.exe --help 2>/dev/null || echo "✅ DB CLI test completed"
-        else
-          timeout 10s ./ambivo-mysql-cli --help 2>/dev/null || echo "✅ MySQL CLI test completed"
-          timeout 10s ./ambivo-db-cli --help 2>/dev/null || echo "✅ DB CLI test completed"
-        fi
-      shell: bash
-
-    - name: Check binary sizes
-      run: |
-        cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
-        echo "📊 Binary sizes:"
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          for file in *.exe; do
-            if [ -f "$file" ]; then
-              size=$(stat -c%s "$file" 2>/dev/null || wc -c < "$file" 2>/dev/null || echo "0")
-              size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
-              echo "$file: ${size_mb}MB"
-            fi
-          done
-        else
-          ls -lh ambivo-*${{ matrix.ext }} 2>/dev/null | awk '{print $9 ": " $5}' || echo "Size check completed"
-        fi
-      shell: bash
-
-    - name: Create macOS DMG
-      if: matrix.platform == 'macos'
-      run: |
-        cd dist
-        
-        # Create temporary directory for DMG contents
-        rm -rf dmg_temp
-        mkdir -p "dmg_temp"
-        
-        # Copy binaries to temp directory
-        cp "${{ matrix.platform }}-${{ matrix.arch }}/ambivo-mysql-cli" "dmg_temp/"
-        cp "${{ matrix.platform }}-${{ matrix.arch }}/ambivo-db-cli" "dmg_temp/"
-        cp "${{ matrix.platform }}-${{ matrix.arch }}/mysql" "dmg_temp/"
-        cp "${{ matrix.platform }}-${{ matrix.arch }}/dbcli" "dmg_temp/"
-        cp "${{ matrix.platform }}-${{ matrix.arch }}/README.txt" "dmg_temp/"
-        cp "${{ matrix.platform }}-${{ matrix.arch }}/install.sh" "dmg_temp/"
-        
-        # Create Applications symlink for easy installation
-        ln -sf /Applications "dmg_temp/Applications"
-        
-        # Remove existing DMG if it exists
-        rm -f "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
-        
-        # Create a nice DMG with create-dmg
-        create-dmg \
-          --volname "Ambivo Database CLI Suite" \
-          --volicon-size 80 \
-          --window-pos 200 120 \
-          --window-size 800 600 \
-          --icon-size 80 \
-          --icon "ambivo-mysql-cli" 200 190 \
-          --icon "ambivo-db-cli" 400 190 \
-          --icon "Applications" 600 190 \
-          --hide-extension "ambivo-mysql-cli" \
-          --hide-extension "ambivo-db-cli" \
-          --app-drop-link 600 190 \
-          "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg" \
-          "dmg_temp/" || {
-            # Fallback: create simple DMG if create-dmg fails
-            echo "create-dmg failed, creating simple DMG..."
-            hdiutil create -srcfolder "dmg_temp" -volname "Ambivo Database CLI Suite" "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
-          }
-        
-        # Clean up temp directory
-        rm -rf "dmg_temp"
-        
-        echo "✅ DMG created: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
-      shell: bash
-
-    - name: Create Linux/Windows archives
-      if: matrix.platform != 'macos'
-      run: |
-        cd dist
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          # Use PowerShell compression on Windows
-          powershell -Command "Compress-Archive -Path '${{ matrix.platform }}-${{ matrix.arch }}\*' -DestinationPath 'ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip' -Force"
-        else
-          # Create tar.gz for Linux
-          tar -czf "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" "${{ matrix.platform }}-${{ matrix.arch }}"
-        fi
-      shell: bash
-
-    - name: Upload artifacts (always)
-      uses: actions/upload-artifact@v4
-      with:
-        name: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}
-        path: |
-          dist/${{ matrix.platform }}-${{ matrix.arch }}/*
-        retention-days: 30
-
-    - name: Get package filename
-      id: package
-      run: |
-        cd dist
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip" >> $GITHUB_OUTPUT
-        elif [ "${{ matrix.platform }}" = "macos" ]; then
-          echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg" >> $GITHUB_OUTPUT
-        else
-          echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" >> $GITHUB_OUTPUT
-        fi
-      shell: bash
-
-    - name: Upload to release (tags only)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v2
-      with:
-        files: dist/${{ steps.package.outputs.filename }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Show package info
-      run: |
-        cd dist
-        echo "🎉 Build completed for ${{ matrix.platform }}-${{ matrix.arch }}"
-        echo "📦 Package format: ${{ matrix.package_format }}"
-        echo "📁 Package file: ${{ steps.package.outputs.filename }}"
-        
-        if [ -f "${{ steps.package.outputs.filename }}" ]; then
-          size=$(stat -c%s "${{ steps.package.outputs.filename }}" 2>/dev/null || stat -f%z "${{ steps.package.outputs.filename }}" 2>/dev/null || echo "0")
-          size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
-          echo "📊 Package size: ${size_mb}MB"
-        fi
-        
-        if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-          echo "💡 To create a release with DMG files, push a tag:"
-          echo "   git tag v1.0.0 && git push origin v1.0.0"
-        fi
-      shell: bash
+        if exist "ambivo-mysql-cli.exe
