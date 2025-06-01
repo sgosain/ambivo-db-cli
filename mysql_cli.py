@@ -1120,7 +1120,7 @@ def main():
         print("Let's get you connected to your MySQL database.")
         print()
 
-        user_choice = input("Would you like to (s)etup connection interactively or see (h)elp? [s/h]: ").strip().lower()
+        user_choice = input("Would you like to (c)onnect interactively or see (h)elp? [c/h]: ").strip().lower()
 
         if user_choice in ['h', 'help']:
             print_mysql_quick_help()
@@ -1128,7 +1128,7 @@ def main():
         elif user_choice in ['q', 'quit', 'exit']:
             print("Goodbye!")
             return 0
-        elif user_choice in ['s', 'setup', '']:
+        elif user_choice in ['c', 'connect', 's', 'setup', '']:
             # Interactive setup
             try:
                 params = interactive_mysql_setup()

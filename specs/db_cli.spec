@@ -1,171 +1,280 @@
-# enhanced_db_cli.spec - Fixed pandas import issue
 # -*- mode: python ; coding: utf-8 -*-
+"""
+PyInstaller Build Specification for Ambivo DB CLI v2.1.0
+Includes matplotlib and all required dependencies.
+Platform: Universal (Windows/Linux/macOS)
 
-import os
+Build with: pyinstaller db_cli.spec
+"""
+
 import sys
+import os
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+# Application metadata
+APP_NAME = "ambivo-db-cli"
+VERSION = "2.1.0"
 
 block_cipher = None
 
+# Collect data files for packages that need them
+try:
+    matplotlib_datas = collect_data_files('matplotlib', include_py_files=True)
+except:
+    matplotlib_datas = []
+
+try:
+    pandas_datas = collect_data_files('pandas')
+except:
+    pandas_datas = []
+
+try:
+    sqlalchemy_datas = collect_data_files('sqlalchemy')
+except:
+    sqlalchemy_datas = []
+
+# Filter out unnecessary matplotlib data to reduce size
+filtered_matplotlib_datas = []
+for src, dst in matplotlib_datas:
+    # Exclude large unnecessary files
+    if not any(exclude in src.lower() for exclude in [
+        'tests', 'test_', 'sample_data', 'examples',
+        'backends/web_backend', 'backends/qt', 'backends/tk'
+    ]):
+        filtered_matplotlib_datas.append((src, dst))
+
+# Comprehensive hidden imports
+hiddenimports = [
+    # Database drivers
+    'mysql.connector',
+    'mysql.connector.cursor',
+    'mysql.connector.pooling',
+    'mysql.connector.connection',
+    'mysql.connector.errors',
+    'psycopg2',
+    'psycopg2.extras',
+    'psycopg2.extensions',
+    'psycopg2.pool',
+    'duckdb',
+    'sqlite3',
+
+    # Core data processing
+    'pandas',
+    'pandas.core',
+    'pandas.io',
+    'pandas.io.common',
+    'pandas.io.sql',
+    'pandas.io.parsers',
+    'sqlalchemy',
+    'sqlalchemy.dialects',
+    'sqlalchemy.dialects.mysql',
+    'sqlalchemy.dialects.postgresql',
+    'sqlalchemy.dialects.sqlite',
+    'sqlalchemy.engine',
+    'sqlalchemy.pool',
+    'numpy',
+    'numpy.core',
+    'numpy.core._multiarray_umath',
+
+    # Visualization (matplotlib)
+    'matplotlib',
+    'matplotlib.pyplot',
+    'matplotlib.figure',
+    'matplotlib.axes',
+    'matplotlib.dates',
+    'matplotlib.backends',
+    'matplotlib.backends.backend_agg',
+    'matplotlib.backends._backend_agg',
+    'matplotlib.ft2font',
+    'matplotlib._path',
+    'matplotlib._contour',
+    'matplotlib._image',
+    'matplotlib._tri',
+    'matplotlib._qhull',
+    'matplotlib.colors',
+    'matplotlib.patches',
+    'matplotlib.lines',
+
+    # Matplotlib dependencies
+    'kiwisolver',
+    'cycler',
+    'pyparsing',
+    'python_dateutil',
+    'python_dateutil.tz',
+    'dateutil',
+    'dateutil.tz',
+    'six',
+    'fonttools',
+    'fonttools.ttLib',
+    'pillow',
+    'PIL',
+    'PIL.Image',
+
+    # Standard libraries that might be missed
+    'tabulate',
+    'urllib',
+    'urllib.parse',
+    'urllib.request',
+    'tempfile',
+    'subprocess',
+    'platform',
+    'shutil',
+    'logging',
+    'logging.handlers',
+    'datetime',
+    'argparse',
+    'textwrap',
+    'getpass',
+    'warnings',
+    'abc',
+    'typing',
+    'pathlib',
+    're',
+    'json',
+    'csv',
+    'io',
+    'time',
+    'os',
+    'sys',
+    'collections',
+    'collections.abc',
+    'weakref',
+    'threading',
+    'multiprocessing',
+
+    # Additional pandas dependencies
+    'pandas._libs',
+    'pandas._libs.tslibs',
+    'pandas.util._decorators',
+    'pandas.core.dtypes',
+    'pandas.core.arrays',
+    'pandas.core.ops',
+
+    # Additional numpy dependencies
+    'numpy.random',
+    'numpy.linalg',
+    'numpy.fft',
+
+    # Additional SQLAlchemy dependencies
+    'sqlalchemy.sql',
+    'sqlalchemy.sql.sqltypes',
+    'sqlalchemy.sql.type_api',
+]
+
+# Platform-specific hidden imports
+if sys.platform.startswith('win'):
+    hiddenimports.extend([
+        'win32api',
+        'win32con',
+        'win32process',
+        'pywintypes',
+        'win32file',
+        'win32security',
+    ])
+elif sys.platform.startswith('darwin'):
+    hiddenimports.extend([
+        'Foundation',
+        'AppKit',
+    ])
+
+# Database-specific hidden imports (only if available)
+try:
+    import mysql.connector
+    hiddenimports.extend([
+        'mysql.connector.locales',
+        'mysql.connector.locales.eng',
+    ])
+except ImportError:
+    pass
+
+try:
+    import psycopg2
+    hiddenimports.extend([
+        'psycopg2._psycopg',
+        'psycopg2.tz',
+    ])
+except ImportError:
+    pass
+
 a = Analysis(
-    ['../db_cli.py'],
-    pathex=['.'],
+    ['db_cli.py'],
+    pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[
-        # Core database dependencies
-        'mysql.connector',
-        'mysql.connector.conversion',
-        'mysql.connector.cursor',
-        'mysql.connector.errors',
-        'mysql.connector.constants',
-        'mysql.connector.authentication',
-
-        # PostgreSQL dependencies
-        'psycopg2',
-        'psycopg2.extras',
-        'psycopg2.extensions',
-
-        # DuckDB
-        'duckdb',
-
-        # SQLite (built-in)
-        'sqlite3',
-
-        # SQLAlchemy - ESSENTIAL modules
-        'sqlalchemy',
-        'sqlalchemy.engine',
-        'sqlalchemy.engine.default',
-        'sqlalchemy.sql',
-        'sqlalchemy.sql.sqltypes',
-        'sqlalchemy.dialects',
-        'sqlalchemy.dialects.mysql',
-        'sqlalchemy.dialects.mysql.mysqlconnector',
-        'sqlalchemy.dialects.postgresql',
-        'sqlalchemy.dialects.postgresql.psycopg2',
-        'sqlalchemy.dialects.sqlite',
-        'sqlalchemy.pool',
-        'sqlalchemy.types',
-
-        # Pandas - CRITICAL: Include ALL necessary pandas modules
-        'pandas',
-        'pandas.core',
-        'pandas.core.arrays',
-        'pandas.core.arrays.categorical',
-        'pandas.core.arrays.datetimes',
-        'pandas.core.arrays.numeric',
-        'pandas.core.arrays.period',
-        'pandas.core.arrays.timedeltas',
-        'pandas.core.computation',
-        'pandas.core.dtypes',
-        'pandas.core.dtypes.common',
-        'pandas.core.dtypes.dtypes',
-        'pandas.core.dtypes.generic',
-        'pandas.core.dtypes.inference',
-        'pandas.core.dtypes.missing',
-        'pandas.core.frame',
-        'pandas.core.generic',
-        'pandas.core.groupby',
-        'pandas.core.indexes',
-        'pandas.core.indexes.api',
-        'pandas.core.indexes.base',
-        'pandas.core.indexes.category',
-        'pandas.core.indexes.datetimes',
-        'pandas.core.indexes.extension',
-        'pandas.core.indexes.frozen',
-        'pandas.core.indexes.multi',
-        'pandas.core.indexes.numeric',
-        'pandas.core.indexes.period',
-        'pandas.core.indexes.range',
-        'pandas.core.indexes.timedeltas',
-        'pandas.core.internals',
-        'pandas.core.ops',
-        'pandas.core.reshape',
-        'pandas.core.series',
-        'pandas.core.tools',
-        'pandas.io',
-        'pandas.io.sql',
-        'pandas.io.common',
-        'pandas.io.parsers',
-        'pandas.io.parsers.readers',
-        'pandas._libs',
-        'pandas._libs.lib',
-        'pandas._libs.tslib',
-        'pandas._libs.hashtable',
-        'pandas._libs.algos',
-        'pandas._libs.interval',
-        'pandas._libs.join',
-        'pandas._libs.missing',
-        'pandas._libs.reduction',
-        'pandas._libs.reshape',
-        'pandas._libs.sparse',
-        'pandas._libs.writers',
-        'pandas.util',
-        'pandas.util._decorators',
-
-        # NumPy - Required by pandas
-        'numpy',
-        'numpy.core',
-        'numpy.core._multiarray_umath',
-        'numpy.core.multiarray',
-        'numpy.core.numeric',
-        'numpy.core.umath',
-        'numpy.lib',
-        'numpy.lib.format',
-        'numpy.linalg',
-        'numpy.random',
-        'numpy.random._pickle',
-        'numpy.random.mtrand',
-
-        # Other essential modules
-        'tabulate',
-        'datetime',
-        'json',
-        'csv',
-        'getpass',
-        'argparse',
-        'textwrap',
-        'subprocess',
-        'warnings',
-        'os',
-        'sys',
-        'abc',
-        'typing',
-        'pathlib',
-
-        # Optional but useful
-        'readline',
-        'rlcompleter',
-    ],
+    datas=filtered_matplotlib_datas + pandas_datas + sqlalchemy_datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[
-        '../hooks/rthook_suppress_warnings.py'
-    ],
+    runtime_hooks=[],
     excludes=[
-        # Exclude problematic modules
-        'distutils',
-        'setuptools',
-        'pkg_resources',
-
-        # Heavy modules not needed
-        'matplotlib',
+        # Exclude unnecessary GUI frameworks
         'tkinter',
+        'tkinter.ttk',
         'PyQt5',
         'PyQt6',
-        'jupyter',
+        'PySide2',
+        'PySide6',
+        'wx',
+        'wxPython',
+
+        # Exclude test frameworks
+        'test',
+        'tests',
+        'testing',
+        'unittest',
+        'unittest2',
+        'pytest',
+        'nose',
+        'doctest',
+
+        # Exclude development tools
         'IPython',
+        'jupyter',
+        'jupyter_client',
+        'jupyter_core',
+        'notebook',
+        'nbformat',
+        'zmq',
+
+        # Exclude unnecessary matplotlib backends
+        'matplotlib.backends.backend_qt5agg',
+        'matplotlib.backends.backend_qt4agg',
+        'matplotlib.backends.backend_tkagg',
+        'matplotlib.backends.backend_gtk3agg',
+        'matplotlib.backends.backend_gtk3cairo',
+        'matplotlib.backends.backend_webagg',
+        'matplotlib.backends.backend_pdf',
+        'matplotlib.backends.backend_ps',
+        'matplotlib.backends.backend_svg',
+
+        # Large scientific packages not needed
         'scipy',
         'sklearn',
+        'scikit-learn',
         'tensorflow',
         'torch',
+        'keras',
+        'sympy',
+        'numba',
+        'statsmodels',
 
-        # Unused pandas modules
-        'pandas.plotting',
-        'pandas.io.clipboard',
-        'pandas.io.excel',
-        'pandas.io.feather',
-        'pandas.io.parquet',
-        'pandas.io.pickle',
+        # Other large packages
+        'django',
+        'flask',
+        'requests',
+        'urllib3',
+        'certifi',
+        'chardet',
+        'idna',
+
+        # Audio/video packages
+        'cv2',
+        'moviepy',
+        'imageio',
+        'skimage',
+
+        # Exclude large data files
+        'matplotlib.mpl-data.fonts',
+        'matplotlib.mpl-data.sample_data',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -173,16 +282,10 @@ a = Analysis(
     noarchive=False,
 )
 
-# Clean duplicates and remove problematic entries
-a.pure = list(set(a.pure))
-a.binaries = list(set(a.binaries))
-
-# Remove distutils entries
-a.pure = [x for x in a.pure if not x[0].startswith('distutils')]
-a.binaries = [x for x in a.binaries if not x[0].startswith('distutils')]
-
+# Remove duplicate entries and optimize
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Build single executable (recommended for distribution)
 exe = EXE(
     pyz,
     a.scripts,
@@ -190,16 +293,64 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ambivo-db-cli',
+    name=APP_NAME,
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
+    strip=False,  # Keep symbols for better error reporting
+    upx=True,  # Compress with UPX if available
+    upx_exclude=[
+        # Don't compress these (can cause issues)
+        'python*.dll',
+        'api-ms-win-*.dll',
+        'vcruntime*.dll',
+    ],
     runtime_tmpdir=None,
-    console=True,
+    console=True,  # Console application
     disable_windowed_traceback=False,
+    argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version='version_info.txt' if sys.platform.startswith('win') else None,
+    icon='icon.ico' if os.path.exists('icon.ico') else None,
 )
+
+# Alternative: Directory distribution (uncomment for folder instead of single file)
+# Faster startup time but multiple files
+#
+# coll = COLLECT(
+#     exe,
+#     a.binaries,
+#     a.zipfiles,
+#     a.datas,
+#     strip=False,
+#     upx=True,
+#     upx_exclude=[
+#         'python*.dll',
+#         'api-ms-win-*.dll',
+#         'vcruntime*.dll',
+#     ],
+#     name=APP_NAME,
+# )
+
+# Build info
+print(f"""
+🚀 PyInstaller Build Configuration for {APP_NAME} v{VERSION}
+
+Target: Single executable
+Platform: {sys.platform}
+Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}
+
+Features included:
+- All database drivers (MySQL, PostgreSQL, SQLite, DuckDB)
+- CSV import/export with pandas
+- Data visualization with matplotlib
+- URL import capabilities
+- Platform-specific optimizations
+
+Build with: pyinstaller db_cli.spec
+Output: dist/{APP_NAME}(.exe)
+
+Estimated size: 120-180 MB (single file)
+Startup time: 2-4 seconds
+""")

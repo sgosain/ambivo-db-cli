@@ -553,7 +553,7 @@ SOFTWARE.
 
 ---
 
-**Built with ❤️ by Hemant Gosain 'Sunny' at Ambivo**
+**Built with 🛡️ by Hemant Gosain 'Sunny' at Ambivo**
 
 *Professional database CLI tools for modern enterprises and developers*
 
