@@ -33,8 +33,8 @@ jobs:
           
           ### 📦 Downloads
           - **Linux x64**: `ambivo-db-cli-linux-x64.tar.gz`
-          - **macOS Intel**: `ambivo-db-cli-macos-x64.tar.gz`  
-          - **macOS Apple Silicon**: `ambivo-db-cli-macos-arm64.tar.gz`
+          - **macOS Intel**: `ambivo-db-cli-macos-x64.dmg` 🍎
+          - **macOS Apple Silicon**: `ambivo-db-cli-macos-arm64.dmg` 🍎
           - **Windows x64**: `ambivo-db-cli-windows-x64.zip`
           
           ### ✨ Features
@@ -46,14 +46,15 @@ jobs:
           - ✅ Interactive setup for first-time users
           
           ### 🚀 Quick Start
-          1. Download the appropriate archive for your platform
-          2. Extract and run the executable directly
-          3. For interactive setup: just run the executable without arguments
-          4. For command line: `ambivo-mysql-cli -H localhost -u root`
+          1. Download the appropriate package for your platform
+          2. **Linux**: Extract tar.gz and run executable
+          3. **macOS**: Mount DMG and copy to Applications or run directly
+          4. **Windows**: Extract ZIP and run executable
+          5. For interactive setup: just run the executable without arguments
           
           ### 💡 Binary Sizes
-          - **MySQL CLI**: ~15MB (MySQL-only, optimized)
-          - **Multi-Database CLI**: ~25MB (all databases)
+          - **MySQL CLI**: ~35MB (MySQL-only, optimized)
+          - **Multi-Database CLI**: ~50MB (all databases)
           
           Built with ❤️ by Hemant Gosain 'Sunny' at Ambivo
         draft: false
@@ -74,30 +75,34 @@ jobs:
             platform: linux
             arch: x64
             ext: ""
+            package_format: "tar.gz"
           - os: macos-13  # Intel Mac
             platform: macos
             arch: x64
             ext: ""
+            package_format: "dmg"
           - os: macos-14  # Apple Silicon
             platform: macos
             arch: arm64
             ext: ""
+            package_format: "dmg"
           - os: windows-latest
             platform: windows
             arch: x64
             ext: ".exe"
+            package_format: "zip"
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v5  # Updated to v5
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
     - name: Cache pip dependencies
-      uses: actions/cache@v4  # Updated to v4
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt', 'mysql_cli.py', 'db_cli.py') }}
@@ -107,7 +112,6 @@ jobs:
     - name: Install dependencies with distutils fix
       run: |
         python -m pip install --upgrade pip
-        # FIXED: Use compatible versions to avoid conflicts
         pip install "setuptools>=65.0.0,<70.0.0"
         pip install "pyinstaller>=5.13.0,<6.0.0"
         pip install mysql-connector-python
@@ -116,6 +120,14 @@ jobs:
         pip install "pandas>=1.5.0,<3.0.0"
         pip install "sqlalchemy>=1.4.0,<3.0.0"
         pip install tabulate
+
+    - name: Install macOS packaging tools
+      if: matrix.platform == 'macos'
+      run: |
+        # Install create-dmg for creating professional DMG files
+        brew install create-dmg
+        # Verify installation
+        create-dmg --version
 
     - name: Display Python and package versions
       run: |
@@ -128,11 +140,14 @@ jobs:
         echo "SETUPTOOLS_USE_DISTUTILS=local" >> $GITHUB_ENV
         echo "DISTUTILS_USE_SDK=1" >> $GITHUB_ENV
         echo "PYTHONWARNINGS=ignore" >> $GITHUB_ENV
+        echo "BUILD_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
       shell: bash
 
-    - name: Create warning suppression hook
+    - name: Create specs directory and warning hook
       run: |
-        mkdir -p hooks
+        mkdir -p specs hooks
+        
+        # Create warning suppression hook
         cat > hooks/rthook_suppress_warnings.py << 'EOF'
         import warnings
         import os
@@ -154,74 +169,178 @@ jobs:
         EOF
       shell: bash
 
-    - name: Build MySQL CLI (Direct Command)
+    - name: Create MySQL CLI spec file
       run: |
-        pyinstaller --onefile \
-          --name="ambivo-mysql-cli" \
-          --console \
-          --clean \
-          --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
-          --workpath "build/mysql_cli_${{ matrix.platform }}_${{ matrix.arch }}" \
-          --hidden-import=mysql.connector \
-          --hidden-import=mysql.connector.cursor \
-          --hidden-import=mysql.connector.errors \
-          --hidden-import=mysql.connector.conversion \
-          --hidden-import=pandas \
-          --hidden-import=pandas.io.sql \
-          --hidden-import=sqlalchemy \
-          --hidden-import=sqlalchemy.engine \
-          --hidden-import=sqlalchemy.dialects.mysql \
-          --hidden-import=sqlalchemy.dialects.mysql.mysqlconnector \
-          --hidden-import=tabulate \
-          --hidden-import=importlib_metadata \
-          --exclude-module=psycopg2 \
-          --exclude-module=duckdb \
-          --exclude-module=matplotlib \
-          --exclude-module=tkinter \
-          --exclude-module=PyQt5 \
-          --exclude-module=PyQt6 \
-          --exclude-module=scipy \
-          --exclude-module=sklearn \
-          --exclude-module=tensorflow \
-          --exclude-module=torch \
-          --runtime-hook=hooks/rthook_suppress_warnings.py \
-          mysql_cli.py
+        cat > specs/mysql_cli.spec << 'EOF'
+        # -*- mode: python ; coding: utf-8 -*-
+        import sys
+        import os
+        from PyInstaller.utils.hooks import collect_data_files
+
+        APP_NAME = "ambivo-mysql-cli"
+        block_cipher = None
+
+        try:
+            pandas_datas = collect_data_files('pandas')
+        except:
+            pandas_datas = []
+
+        try:
+            sqlalchemy_datas = collect_data_files('sqlalchemy')
+        except:
+            sqlalchemy_datas = []
+
+        hiddenimports = [
+            'mysql.connector', 'mysql.connector.cursor', 'mysql.connector.errors',
+            'mysql.connector.conversion', 'mysql.connector.locales.eng',
+            'pandas', 'pandas.io.sql', 'sqlalchemy', 'sqlalchemy.dialects.mysql',
+            'sqlalchemy.dialects.mysql.mysqlconnector', 'tabulate', 'importlib_metadata'
+        ]
+
+        if sys.platform.startswith('win'):
+            hiddenimports.extend(['win32api', 'win32con'])
+
+        try:
+            import readline
+            hiddenimports.append('readline')
+        except ImportError:
+            pass
+
+        a = Analysis(
+            ['mysql_cli.py'],
+            pathex=[],
+            binaries=[],
+            datas=pandas_datas + sqlalchemy_datas,
+            hiddenimports=hiddenimports,
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=['hooks/rthook_suppress_warnings.py'] if os.path.exists('hooks/rthook_suppress_warnings.py') else [],
+            excludes=[
+                'psycopg2', 'duckdb', 'sqlite3', 'matplotlib', 'tkinter', 'PyQt5', 'PyQt6',
+                'scipy', 'sklearn', 'tensorflow', 'torch', 'IPython', 'jupyter'
+            ],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
+
+        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+        exe = EXE(
+            pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
+            name=APP_NAME,
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            upx_exclude=['python*.dll', 'api-ms-win-*.dll', 'vcruntime*.dll'],
+            runtime_tmpdir=None,
+            console=True,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+        )
+        EOF
       shell: bash
 
-    - name: Build Multi-DB CLI (Direct Command)
+    - name: Create Multi-DB CLI spec file
       run: |
-        pyinstaller --onefile \
-          --name="ambivo-db-cli" \
-          --console \
-          --clean \
+        cat > specs/db_cli.spec << 'EOF'
+        # -*- mode: python ; coding: utf-8 -*-
+        import sys
+        import os
+        from PyInstaller.utils.hooks import collect_data_files
+
+        APP_NAME = "ambivo-db-cli"
+        block_cipher = None
+
+        try:
+            pandas_datas = collect_data_files('pandas')
+        except:
+            pandas_datas = []
+
+        try:
+            sqlalchemy_datas = collect_data_files('sqlalchemy')
+        except:
+            sqlalchemy_datas = []
+
+        hiddenimports = [
+            # Database drivers
+            'mysql.connector', 'mysql.connector.cursor', 'mysql.connector.errors',
+            'psycopg2', 'psycopg2.extras', 'duckdb', 'sqlite3',
+            # Data processing
+            'pandas', 'pandas.io.sql', 'sqlalchemy', 'sqlalchemy.dialects.mysql',
+            'sqlalchemy.dialects.postgresql', 'sqlalchemy.dialects.sqlite',
+            'tabulate', 'importlib_metadata'
+        ]
+
+        if sys.platform.startswith('win'):
+            hiddenimports.extend(['win32api', 'win32con'])
+
+        try:
+            import readline
+            hiddenimports.append('readline')
+        except ImportError:
+            pass
+
+        a = Analysis(
+            ['db_cli.py'],
+            pathex=[],
+            binaries=[],
+            datas=pandas_datas + sqlalchemy_datas,
+            hiddenimports=hiddenimports,
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=['hooks/rthook_suppress_warnings.py'] if os.path.exists('hooks/rthook_suppress_warnings.py') else [],
+            excludes=[
+                'matplotlib', 'tkinter', 'PyQt5', 'PyQt6', 'scipy', 'sklearn', 
+                'tensorflow', 'torch', 'IPython', 'jupyter', 'test', 'tests'
+            ],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
+
+        pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+        exe = EXE(
+            pyz, a.scripts, a.binaries, a.zipfiles, a.datas, [],
+            name=APP_NAME,
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            upx_exclude=['python*.dll', 'api-ms-win-*.dll', 'vcruntime*.dll'],
+            runtime_tmpdir=None,
+            console=True,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+        )
+        EOF
+      shell: bash
+
+    - name: Build binaries using spec files
+      run: |
+        # Build MySQL CLI
+        echo "Building MySQL CLI using spec file..."
+        python -m PyInstaller specs/mysql_cli.spec \
+          --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
+          --workpath "build/mysql_cli_${{ matrix.platform }}_${{ matrix.arch }}" \
+          --clean
+
+        # Build Multi-DB CLI
+        echo "Building Multi-Database CLI using spec file..."
+        python -m PyInstaller specs/db_cli.spec \
           --distpath "dist/${{ matrix.platform }}-${{ matrix.arch }}" \
           --workpath "build/db_cli_${{ matrix.platform }}_${{ matrix.arch }}" \
-          --hidden-import=mysql.connector \
-          --hidden-import=mysql.connector.cursor \
-          --hidden-import=mysql.connector.errors \
-          --hidden-import=psycopg2 \
-          --hidden-import=psycopg2.extras \
-          --hidden-import=duckdb \
-          --hidden-import=sqlite3 \
-          --hidden-import=pandas \
-          --hidden-import=pandas.io.sql \
-          --hidden-import=sqlalchemy \
-          --hidden-import=sqlalchemy.engine \
-          --hidden-import=sqlalchemy.dialects.mysql \
-          --hidden-import=sqlalchemy.dialects.postgresql \
-          --hidden-import=sqlalchemy.dialects.sqlite \
-          --hidden-import=tabulate \
-          --hidden-import=importlib_metadata \
-          --exclude-module=matplotlib \
-          --exclude-module=tkinter \
-          --exclude-module=PyQt5 \
-          --exclude-module=PyQt6 \
-          --exclude-module=scipy \
-          --exclude-module=sklearn \
-          --exclude-module=tensorflow \
-          --exclude-module=torch \
-          --runtime-hook=hooks/rthook_suppress_warnings.py \
-          db_cli.py
+          --clean
       shell: bash
 
     - name: Create convenience scripts (Unix)
@@ -266,8 +385,49 @@ jobs:
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
-        # Create README
-        cat > README.txt << 'EOF'
+        # Create platform-specific README
+        if [ "${{ matrix.platform }}" = "macos" ]; then
+          cat > README.txt << 'EOF'
+        # Ambivo Database CLI Suite - macOS ${{ matrix.arch }}
+        
+        ## Quick Installation (Recommended)
+        1. Copy the applications to your Applications folder:
+           - Drag ambivo-mysql-cli to /Applications/
+           - Drag ambivo-db-cli to /Applications/
+        
+        2. Or use the install script: ./install.sh
+        
+        ## Interactive Mode (Recommended for beginners)
+        Just run the executable without any arguments for guided setup:
+        ./ambivo-mysql-cli
+        ./ambivo-db-cli
+        
+        ## Command Line Examples
+        ./ambivo-mysql-cli -H localhost -u root -p
+        ./ambivo-db-cli mysql -H localhost -u root -p -d mydb
+        ./ambivo-db-cli postgresql -H localhost -u postgres -d mydb
+        ./ambivo-db-cli sqlite -f database.db
+        ./ambivo-db-cli duckdb -f analytics.db
+        
+        ## Terminal Access
+        Add to ~/.zshrc or ~/.bash_profile:
+        export PATH=$PATH:/Applications
+        
+        Then use: ambivo-mysql-cli or ambivo-db-cli from anywhere
+        
+        ## Features
+        - ✅ Native macOS applications
+        - ✅ No Python installation required
+        - ✅ Interactive setup for beginners
+        - ✅ Full database connectivity
+        - ✅ CSV import with intelligent mapping
+        - ✅ Command history and tab completion
+        
+        Built by Hemant Gosain 'Sunny' at Ambivo
+        Version: 2.1.0 | Build: ${{ env.BUILD_DATE }}
+        EOF
+        else
+          cat > README.txt << 'EOF'
         # Ambivo Database CLI Suite - ${{ matrix.platform }} ${{ matrix.arch }}
         
         ## Quick Start - Interactive Mode (Recommended)
@@ -279,11 +439,11 @@ jobs:
         ## Command Line Examples
         
         ### MySQL CLI
-        ./ambivo-mysql-cli${{ matrix.ext }} -H localhost -u root -p mypassword
+        ./ambivo-mysql-cli${{ matrix.ext }} -H localhost -u root -p
         ./ambivo-mysql-cli${{ matrix.ext }} -H myserver -u admin -d production
         
         ### Multi-Database CLI  
-        ./ambivo-db-cli${{ matrix.ext }} mysql -H localhost -u root -p mypassword -d mydb
+        ./ambivo-db-cli${{ matrix.ext }} mysql -H localhost -u root -p -d mydb
         ./ambivo-db-cli${{ matrix.ext }} postgresql -H localhost -u postgres -d mydb
         ./ambivo-db-cli${{ matrix.ext }} sqlite -f database.db
         ./ambivo-db-cli${{ matrix.ext }} duckdb -f analytics.db
@@ -301,17 +461,52 @@ jobs:
         - ✅ Professional table formatting
         - ✅ Cross-platform compatibility
         
-        ## Support
-        Email: sgosain@ambivo.com
-        Company: https://www.ambivo.com
-        GitHub: https://github.com/sgosain/ambivo-db-cli
-        
         Built by Hemant Gosain 'Sunny' at Ambivo
+        Version: 2.1.0 | Build: ${{ env.BUILD_DATE }}
         EOF
+        fi
         
-        # Create install script for Unix
+        # Create install script for Unix/macOS
         if [ "${{ matrix.platform }}" != "windows" ]; then
-          cat > install.sh << 'EOF'
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            cat > install.sh << 'EOF'
+        #!/bin/bash
+        echo "🍎 Installing Ambivo Database CLI Suite for macOS..."
+        
+        # Option 1: Applications folder (recommended)
+        if [ -w "/Applications" ]; then
+          echo "Installing to /Applications (system-wide access)..."
+          cp ambivo-mysql-cli "/Applications/"
+          cp ambivo-db-cli "/Applications/"
+          echo "✅ Installed to /Applications"
+          echo ""
+          echo "You can now run:"
+          echo "/Applications/ambivo-mysql-cli"
+          echo "/Applications/ambivo-db-cli"
+          echo ""
+          echo "Or add to PATH in ~/.zshrc:"
+          echo "export PATH=\$PATH:/Applications"
+        else
+          # Option 2: User local bin
+          echo "Installing to ~/.local/bin (user access)..."
+          INSTALL_DIR="$HOME/.local/bin"
+          mkdir -p "$INSTALL_DIR"
+          cp ambivo-mysql-cli "$INSTALL_DIR/"
+          cp ambivo-db-cli "$INSTALL_DIR/"
+          cp mysql "$INSTALL_DIR/"
+          cp dbcli "$INSTALL_DIR/"
+          chmod +x "$INSTALL_DIR"/*
+          echo "✅ Installed to: $INSTALL_DIR"
+          echo ""
+          echo "Add to PATH by adding this to your ~/.zshrc:"
+          echo "export PATH=\$PATH:$INSTALL_DIR"
+        fi
+        
+        echo ""
+        echo "💡 Tip: Run without arguments for interactive setup"
+        EOF
+          else
+            cat > install.sh << 'EOF'
         #!/bin/bash
         echo "🚀 Installing Ambivo Database CLI Suite..."
         
@@ -335,7 +530,10 @@ jobs:
         echo "Or run directly:"
         echo "$INSTALL_DIR/ambivo-mysql-cli"
         echo "$INSTALL_DIR/ambivo-db-cli"
+        echo ""
+        echo "💡 Tip: Run without arguments for interactive setup"
         EOF
+          fi
           chmod +x install.sh
         else
           # Windows install script
@@ -355,6 +553,7 @@ jobs:
         echo %INSTALL_DIR%\ambivo-mysql-cli.exe
         echo %INSTALL_DIR%\ambivo-db-cli.exe
         echo.
+        echo 💡 Tip: Run without arguments for interactive setup
         pause
         EOF
         fi
@@ -381,40 +580,95 @@ jobs:
         echo "📊 Binary sizes:"
         if [ "${{ matrix.platform }}" = "windows" ]; then
           for file in *.exe; do
-            size=$(stat -c%s "$file" 2>/dev/null || echo "0")
-            size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
-            echo "$file: ${size_mb}MB"
+            if [ -f "$file" ]; then
+              size=$(stat -c%s "$file" 2>/dev/null || wc -c < "$file" 2>/dev/null || echo "0")
+              size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+              echo "$file: ${size_mb}MB"
+            fi
           done
         else
-          ls -lh ambivo-*${{ matrix.ext }} | awk '{print $9 ": " $5}' 2>/dev/null || echo "Size check completed"
+          ls -lh ambivo-*${{ matrix.ext }} 2>/dev/null | awk '{print $9 ": " $5}' || echo "Size check completed"
         fi
       shell: bash
 
-    - name: Create archive
+    - name: Create macOS DMG
+      if: matrix.platform == 'macos'
+      run: |
+        cd dist
+        
+        # Create temporary directory for DMG contents
+        rm -rf dmg_temp
+        mkdir -p "dmg_temp"
+        
+        # Copy binaries to temp directory
+        cp "${{ matrix.platform }}-${{ matrix.arch }}/ambivo-mysql-cli" "dmg_temp/"
+        cp "${{ matrix.platform }}-${{ matrix.arch }}/ambivo-db-cli" "dmg_temp/"
+        cp "${{ matrix.platform }}-${{ matrix.arch }}/mysql" "dmg_temp/"
+        cp "${{ matrix.platform }}-${{ matrix.arch }}/dbcli" "dmg_temp/"
+        cp "${{ matrix.platform }}-${{ matrix.arch }}/README.txt" "dmg_temp/"
+        cp "${{ matrix.platform }}-${{ matrix.arch }}/install.sh" "dmg_temp/"
+        
+        # Create Applications symlink for easy installation
+        ln -sf /Applications "dmg_temp/Applications"
+        
+        # Remove existing DMG if it exists
+        rm -f "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
+        
+        # Create a nice DMG with create-dmg
+        create-dmg \
+          --volname "Ambivo Database CLI Suite" \
+          --volicon-size 80 \
+          --window-pos 200 120 \
+          --window-size 800 600 \
+          --icon-size 80 \
+          --icon "ambivo-mysql-cli" 200 190 \
+          --icon "ambivo-db-cli" 400 190 \
+          --icon "Applications" 600 190 \
+          --hide-extension "ambivo-mysql-cli" \
+          --hide-extension "ambivo-db-cli" \
+          --app-drop-link 600 190 \
+          "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg" \
+          "dmg_temp/" || {
+            # Fallback: create simple DMG if create-dmg fails
+            echo "create-dmg failed, creating simple DMG..."
+            hdiutil create -srcfolder "dmg_temp" -volname "Ambivo Database CLI Suite" "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
+          }
+        
+        # Clean up temp directory
+        rm -rf "dmg_temp"
+        
+        echo "✅ DMG created: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
+      shell: bash
+
+    - name: Create Linux/Windows archives
+      if: matrix.platform != 'macos'
       run: |
         cd dist
         if [ "${{ matrix.platform }}" = "windows" ]; then
           # Use PowerShell compression on Windows
           powershell -Command "Compress-Archive -Path '${{ matrix.platform }}-${{ matrix.arch }}\*' -DestinationPath 'ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip' -Force"
         else
+          # Create tar.gz for Linux
           tar -czf "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" "${{ matrix.platform }}-${{ matrix.arch }}"
         fi
       shell: bash
 
     - name: Upload artifacts (always)
-      uses: actions/upload-artifact@v4  # Updated to v4
+      uses: actions/upload-artifact@v4
       with:
         name: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}
         path: |
           dist/${{ matrix.platform }}-${{ matrix.arch }}/*
         retention-days: 30
 
-    - name: Get archive filename
-      id: archive
+    - name: Get package filename
+      id: package
       run: |
         cd dist
         if [ "${{ matrix.platform }}" = "windows" ]; then
           echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip" >> $GITHUB_OUTPUT
+        elif [ "${{ matrix.platform }}" = "macos" ]; then
+          echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg" >> $GITHUB_OUTPUT
         else
           echo "filename=ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" >> $GITHUB_OUTPUT
         fi
@@ -422,15 +676,27 @@ jobs:
 
     - name: Upload to release (tags only)
       if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v2  # Updated to v2
+      uses: softprops/action-gh-release@v2
       with:
-        files: dist/${{ steps.archive.outputs.filename }}
+        files: dist/${{ steps.package.outputs.filename }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Comment on build completion (for pushes to main)
-      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    - name: Show package info
       run: |
+        cd dist
         echo "🎉 Build completed for ${{ matrix.platform }}-${{ matrix.arch }}"
-        echo "Artifacts are available in the GitHub Actions tab"
-        echo "To create a release, push a tag: git tag v1.0.0 && git push origin v1.0.0"
+        echo "📦 Package format: ${{ matrix.package_format }}"
+        echo "📁 Package file: ${{ steps.package.outputs.filename }}"
+        
+        if [ -f "${{ steps.package.outputs.filename }}" ]; then
+          size=$(stat -c%s "${{ steps.package.outputs.filename }}" 2>/dev/null || stat -f%z "${{ steps.package.outputs.filename }}" 2>/dev/null || echo "0")
+          size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+          echo "📊 Package size: ${size_mb}MB"
+        fi
+        
+        if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          echo "💡 To create a release with DMG files, push a tag:"
+          echo "   git tag v1.0.0 && git push origin v1.0.0"
+        fi
+      shell: bash

@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller Build Specification for Ambivo DB CLI v2.1.0
-Includes matplotlib and all required dependencies.
+PyInstaller Build Specification for Ambivo Multi-Database CLI v2.1.0
+Includes all database drivers and optional visualization support.
 Platform: Universal (Windows/Linux/macOS)
 
 Build with: pyinstaller db_cli.spec
@@ -43,7 +43,7 @@ for src, dst in matplotlib_datas:
     ]):
         filtered_matplotlib_datas.append((src, dst))
 
-# Comprehensive hidden imports
+# Comprehensive hidden imports for all database support
 hiddenimports = [
     # Database drivers
     'mysql.connector',
@@ -51,10 +51,15 @@ hiddenimports = [
     'mysql.connector.pooling',
     'mysql.connector.connection',
     'mysql.connector.errors',
+    'mysql.connector.conversion',
+    'mysql.connector.locales',
+    'mysql.connector.locales.eng',
     'psycopg2',
     'psycopg2.extras',
     'psycopg2.extensions',
     'psycopg2.pool',
+    'psycopg2._psycopg',
+    'psycopg2.tz',
     'duckdb',
     'sqlite3',
 
@@ -65,18 +70,30 @@ hiddenimports = [
     'pandas.io.common',
     'pandas.io.sql',
     'pandas.io.parsers',
+    'pandas._libs',
+    'pandas._libs.tslibs',
+    'pandas.util._decorators',
+    'pandas.core.dtypes',
+    'pandas.core.arrays',
+    'pandas.core.ops',
     'sqlalchemy',
     'sqlalchemy.dialects',
     'sqlalchemy.dialects.mysql',
+    'sqlalchemy.dialects.mysql.mysqlconnector',
     'sqlalchemy.dialects.postgresql',
     'sqlalchemy.dialects.sqlite',
     'sqlalchemy.engine',
     'sqlalchemy.pool',
+    'sqlalchemy.sql',
+    'sqlalchemy.sql.sqltypes',
+    'sqlalchemy.sql.type_api',
     'numpy',
     'numpy.core',
     'numpy.core._multiarray_umath',
+    'numpy.random',
+    'numpy.linalg',
 
-    # Visualization (matplotlib)
+    # Visualization (matplotlib) - optional but included
     'matplotlib',
     'matplotlib.pyplot',
     'matplotlib.figure',
@@ -110,7 +127,7 @@ hiddenimports = [
     'PIL',
     'PIL.Image',
 
-    # Standard libraries that might be missed
+    # Essential utilities
     'tabulate',
     'urllib',
     'urllib.parse',
@@ -141,24 +158,7 @@ hiddenimports = [
     'weakref',
     'threading',
     'multiprocessing',
-
-    # Additional pandas dependencies
-    'pandas._libs',
-    'pandas._libs.tslibs',
-    'pandas.util._decorators',
-    'pandas.core.dtypes',
-    'pandas.core.arrays',
-    'pandas.core.ops',
-
-    # Additional numpy dependencies
-    'numpy.random',
-    'numpy.linalg',
-    'numpy.fft',
-
-    # Additional SQLAlchemy dependencies
-    'sqlalchemy.sql',
-    'sqlalchemy.sql.sqltypes',
-    'sqlalchemy.sql.type_api',
+    'importlib_metadata',
 ]
 
 # Platform-specific hidden imports
@@ -177,22 +177,10 @@ elif sys.platform.startswith('darwin'):
         'AppKit',
     ])
 
-# Database-specific hidden imports (only if available)
+# Try to include readline if available
 try:
-    import mysql.connector
-    hiddenimports.extend([
-        'mysql.connector.locales',
-        'mysql.connector.locales.eng',
-    ])
-except ImportError:
-    pass
-
-try:
-    import psycopg2
-    hiddenimports.extend([
-        'psycopg2._psycopg',
-        'psycopg2.tz',
-    ])
+    import readline
+    hiddenimports.append('readline')
 except ImportError:
     pass
 
@@ -204,7 +192,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['hooks/rthook_suppress_warnings.py'] if os.path.exists('hooks/rthook_suppress_warnings.py') else [],
     excludes=[
         # Exclude unnecessary GUI frameworks
         'tkinter',
@@ -315,29 +303,11 @@ exe = EXE(
     icon='icon.ico' if os.path.exists('icon.ico') else None,
 )
 
-# Alternative: Directory distribution (uncomment for folder instead of single file)
-# Faster startup time but multiple files
-#
-# coll = COLLECT(
-#     exe,
-#     a.binaries,
-#     a.zipfiles,
-#     a.datas,
-#     strip=False,
-#     upx=True,
-#     upx_exclude=[
-#         'python*.dll',
-#         'api-ms-win-*.dll',
-#         'vcruntime*.dll',
-#     ],
-#     name=APP_NAME,
-# )
-
 # Build info
 print(f"""
 🚀 PyInstaller Build Configuration for {APP_NAME} v{VERSION}
 
-Target: Single executable
+Target: Universal multi-database single executable
 Platform: {sys.platform}
 Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}
 
@@ -351,6 +321,6 @@ Features included:
 Build with: pyinstaller db_cli.spec
 Output: dist/{APP_NAME}(.exe)
 
-Estimated size: 120-180 MB (single file)
+Estimated size: 120-180 MB (includes all databases + visualization)
 Startup time: 2-4 seconds
 """)

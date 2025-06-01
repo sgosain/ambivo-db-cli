@@ -1,21 +1,17 @@
-"""
-Runtime hook to suppress warnings in PyInstaller executable
-"""
 import warnings
 import os
+import sys
 
-# Set environment variable
+# Suppress all warnings
 os.environ['PYTHONWARNINGS'] = 'ignore'
-
-# Suppress all warning categories
 warnings.filterwarnings("ignore")
 warnings.simplefilter("ignore")
 
-# Specific suppressions
+# Suppress specific warning categories
 for category in [UserWarning, DeprecationWarning, FutureWarning, 
                 PendingDeprecationWarning, ImportWarning, ResourceWarning]:
     warnings.filterwarnings("ignore", category=category)
 
-# Module-specific suppressions
-for module in ['pkg_resources', 'setuptools', 'distutils', 'pandas', 'numpy', 'sqlalchemy']:
-    warnings.filterwarnings("ignore", module=module)
+# Redirect stderr to suppress remaining warnings
+import io
+sys.stderr = io.StringIO()
