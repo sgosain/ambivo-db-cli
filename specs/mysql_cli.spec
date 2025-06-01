@@ -1,4 +1,4 @@
-# mysql_only.spec - MySQL CLI Only (Smaller Binary)
+# mysql_simple.spec - Simplified MySQL CLI (Most Reliable)
 # -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -9,32 +9,41 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[
+        # Core MySQL
         'mysql.connector',
         'mysql.connector.conversion',
-        'mysql.connector.abstracts',
-        'mysql.connector.constants',
         'mysql.connector.cursor',
-        'mysql.connector.pooling',
-        'mysql.connector.protocol',
         'mysql.connector.errors',
-        'mysql.connector.locales',
-        'mysql.connector.charsets',
-        'tabulate',
+
+        # Core CSV support
         'pandas',
+        'pandas.io.sql',
         'sqlalchemy',
-        'sqlalchemy.dialects.mysql',
-        'readline'
+        'sqlalchemy.engine',
+        'sqlalchemy.dialects.mysql.mysqlconnector',
+
+        # Essential
+        'tabulate',
+        'readline',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Exclude other database drivers for smaller MySQL-only binary
-        'psycopg2',
-        'duckdb',
+        # Only exclude what we really don't need
         'matplotlib',
         'tkinter',
-        'PyQt5'
+        'PyQt5',
+        'PyQt6',
+        'scipy',
+        'sklearn',
+        'tensorflow',
+        'torch',
+        'PIL',
+        'cv2',
+        'pytest',
+        'IPython',
+        'jupyter',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

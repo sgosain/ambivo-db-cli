@@ -104,19 +104,22 @@ from typing import Dict, List, Optional
 try:
     import readline
     import atexit
-
     READLINE_SUPPORT = True
 except ImportError:
     READLINE_SUPPORT = False
 
-# Optional imports for CSV functionality
-try:
-    import pandas as pd
-    from sqlalchemy import create_engine
+# FIXED: Cleaner pandas/SQLAlchemy import handling
+def check_csv_dependencies():
+    """Check if CSV dependencies are available and return import status."""
+    try:
+        import pandas
+        import sqlalchemy
+        return True, pandas, sqlalchemy
+    except ImportError:
+        return False, None, None
 
-    CSV_SUPPORT = True
-except ImportError:
-    CSV_SUPPORT = False
+# Initialize CSV support
+CSV_SUPPORT, pandas_module, sqlalchemy_module = check_csv_dependencies()
 
 
 def setup_readline():
@@ -417,15 +420,9 @@ class EnhancedMySQLClient:
                             create_table: bool = False):
         """
         Import CSV file to MySQL table with intelligent column mapping.
-
-        Args:
-            csv_path (str): Path to the CSV file
-            table_name (str): Target table name
-            column_mapping (dict): Manual column mapping {'csv_col': 'table_col'}
-            chunk_size (int): Rows to process at once
-            interactive (bool): Whether to prompt user for confirmations
-            create_table (bool): Whether to create table if it doesn't exist
+        FIXED: Proper handling of pandas imports to prevent NameError.
         """
+        # Check CSV support first
         if not CSV_SUPPORT:
             return {
                 "success": False,
@@ -439,6 +436,11 @@ class EnhancedMySQLClient:
             return {"success": False, "error": "No database selected. Use 'USE database_name;'"}
 
         try:
+            # FIXED: Import pandas and sqlalchemy locally within the method
+            # This ensures they're available regardless of global import state
+            import pandas as pd
+            from sqlalchemy import create_engine
+
             # Create SQLAlchemy engine for pandas integration
             engine = create_engine(
                 f"mysql+mysqlconnector://{self.user}:{self.password}@"
@@ -560,15 +562,20 @@ class EnhancedMySQLClient:
                 "rows_per_second": rows_per_second
             }
 
+        except ImportError as e:
+            return {"success": False, "error": f"Missing dependencies for CSV import: {e}"}
         except Exception as e:
             return {"success": False, "error": f"Import error: {str(e)}"}
         finally:
             if 'engine' in locals():
                 engine.dispose()
 
-    def _create_table_from_csv(self, table_name: str, csv_sample: pd.DataFrame, interactive: bool = True):
+    def _create_table_from_csv(self, table_name: str, csv_sample, interactive: bool = True):
         """Create table based on CSV structure with intelligent type inference."""
         try:
+            # FIXED: Import pandas locally within the method
+            import pandas as pd
+
             columns_sql = []
 
             for col_name in csv_sample.columns:
@@ -1045,16 +1052,150 @@ def print_result(result, format_output=True):
         print("Query executed successfully")
 
 
+def print_mysql_banner():
+    """Print MySQL-specific banner."""
+    print("=" * 60)
+    print("🐬 Ambivo MySQL CLI v1.2.0")
+    print("   Professional MySQL Database Management")
+    print("   Built by Hemant Gosain 'Sunny' | Ambivo")
+    print("=" * 60)
+    print()
+
+
+def print_mysql_quick_help():
+    """Print quick help for MySQL CLI."""
+    print("Quick Start:")
+    print("  -H <host>     MySQL host (default: localhost)")
+    print("  -u <user>     Username (default: root)")
+    print("  -p <pass>     Password (will prompt if not provided)")
+    print("  -d <db>       Database name (optional)")
+    print("  --help        Full help and examples")
+    print()
+    print("Examples:")
+    print("  ambivo-mysql-cli -H localhost -u root")
+    print("  ambivo-mysql-cli -H myserver -u admin -d production")
+    print("  ambivo-mysql-cli -u root -p mypassword \"SHOW DATABASES\"")
+    print()
+
+
+def interactive_mysql_setup():
+    """Interactive setup for MySQL connection."""
+    print("🔧 MySQL Connection Setup")
+    print("Type 'h' for help, 'q' to quit")
+    print()
+
+    # Get connection details
+    host = input("MySQL Host (default: localhost): ").strip()
+    host = host if host else 'localhost'
+
+    port = input("Port (default: 3306): ").strip()
+    port = int(port) if port else 3306
+
+    user = input("Username (default: root): ").strip()
+    user = user if user else 'root'
+
+    database = input("Database name (optional): ").strip()
+    database = database if database else None
+
+    # Password prompt
+    password = getpass.getpass(f"Password for {user}@{host}: ")
+
+    return {
+        'host': host,
+        'port': port,
+        'user': user,
+        'password': password,
+        'database': database
+    }
+
+
 def main():
     """Enhanced main entry point for Ambivo MySQL CLI."""
+    # Show banner
+    print_mysql_banner()
+
+    # Check if this is likely a first run (no arguments provided)
+    if len(sys.argv) == 1:
+        print("Welcome! It looks like this is your first time using Ambivo MySQL CLI.")
+        print("Let's get you connected to your MySQL database.")
+        print()
+
+        user_choice = input("Would you like to (s)etup connection interactively or see (h)elp? [s/h]: ").strip().lower()
+
+        if user_choice in ['h', 'help']:
+            print_mysql_quick_help()
+            return 0
+        elif user_choice in ['q', 'quit', 'exit']:
+            print("Goodbye!")
+            return 0
+        elif user_choice in ['s', 'setup', '']:
+            # Interactive setup
+            try:
+                params = interactive_mysql_setup()
+
+                # Create client
+                client = EnhancedMySQLClient(**params)
+
+                # Test connection
+                print(f"\n🔌 Connecting to MySQL...")
+                print(f"   Host: {params['host']}:{params['port']}")
+                print(f"   User: {params['user']}")
+                print(f"   Database: {params['database'] or 'none'}")
+
+                health_result = client.health()
+
+                if not health_result.get('success'):
+                    print(f"❌ Connection failed: {health_result.get('error')}")
+                    print("Please check your connection parameters and try again.")
+                    return 1
+
+                print("✅ Connected successfully!")
+                if health_result.get('version'):
+                    print(f"Server version: {health_result['version']}")
+                if health_result.get('uptime_hours'):
+                    print(f"Server uptime: {health_result['uptime_hours']} hours")
+
+                # Show feature status
+                if CSV_SUPPORT:
+                    print("📊 CSV Import: Enabled")
+                else:
+                    print("📊 CSV Import: Disabled (install pandas and sqlalchemy)")
+
+                if READLINE_SUPPORT:
+                    print("📝 Command history: Enabled")
+                else:
+                    print("📝 Command history: Disabled (install readline)")
+
+                print()
+
+                # Start interactive mode
+                try:
+                    interactive_mode_enhanced(client)
+                finally:
+                    client.close()
+                    print("Connection closed. Thank you for using Ambivo MySQL CLI!")
+
+                return 0
+
+            except KeyboardInterrupt:
+                print("\n\nSetup cancelled. Goodbye!")
+                return 0
+            except Exception as e:
+                print(f"❌ Error during setup: {e}")
+                return 1
+        else:
+            print("Invalid choice. Use --help for command line options.")
+            return 1
+
+    # Continue with original argument parsing
     parser = argparse.ArgumentParser(
         description="Ambivo MySQL CLI - Professional MySQL Database Management",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""
         Examples:
-          ./mysql_cli.py -H localhost -u root -p <password>
-          ./mysql_cli.py -H mysql.server.com -P 3306 -u admin -d production
-          ./mysql_cli.py --license
+          ambivo-mysql-cli -H localhost -u root -p <password>
+          ambivo-mysql-cli -H mysql.server.com -P 3306 -u admin -d production
+          ambivo-mysql-cli --license
 
         CSV Import Examples (inside CLI):
           csv_import data.csv users
@@ -1077,7 +1218,6 @@ def main():
         """))
 
     parser.add_argument("--license", action="store_true", help="Show license information and exit")
-    # Changed -h to -H to avoid conflict with argparse's built-in -h/--help
     parser.add_argument("-H", "--host", default="localhost", help="MySQL host")
     parser.add_argument("-P", "--port", type=int, default=3306, help="MySQL port")
     parser.add_argument("-u", "--user", default="root", help="MySQL username")
@@ -1087,6 +1227,7 @@ def main():
     parser.add_argument("--charset", default="utf8mb4", help="Character set")
     parser.add_argument("query", nargs="?", help="SQL query to execute")
     parser.add_argument("--raw", action="store_true", help="Raw output format")
+    parser.add_argument("--no-banner", action="store_true", help="Skip banner display")
 
     args = parser.parse_args()
 
@@ -1094,10 +1235,22 @@ def main():
         print_license()
         return 0
 
-    # Handle password prompt
+    # Show banner unless suppressed
+    if not args.no_banner:
+        print_mysql_banner()
+
+    # Handle password prompt - only if we're going to connect
     password = args.password
     if not password and args.user:
-        password = getpass.getpass(f"Enter password for {args.user}@{args.host}: ")
+        # Check if we have a query to execute (non-interactive mode)
+        if args.query:
+            # Non-interactive mode - require password via -p
+            print(f"❌ Password required for user '{args.user}'. Use -p <password> for non-interactive mode.")
+            print("💡 Or run without arguments for interactive setup.")
+            return 1
+        else:
+            # Interactive mode - prompt for password
+            password = getpass.getpass(f"Enter password for {args.user}@{args.host}: ")
 
     # Create enhanced client
     client = EnhancedMySQLClient(
@@ -1111,26 +1264,28 @@ def main():
     )
 
     # Test connection
-    print("Ambivo MySQL CLI - Connecting to MySQL...")
-    print(f"Host: {args.host}:{args.port} | User: {args.user}")
+    print("🔌 Connecting to MySQL...")
+    print(f"   Host: {args.host}:{args.port}")
+    print(f"   User: {args.user}")
+    if args.database:
+        print(f"   Database: {args.database}")
 
     # Check feature support and show status
     if not CSV_SUPPORT:
-        print("Note: CSV import functionality disabled")
-        print("To enable: pip install pandas sqlalchemy")
+        print("📊 CSV Import: Disabled (install pandas and sqlalchemy)")
 
     if not READLINE_SUPPORT:
-        print("Note: Command history disabled")
-        print("To enable: pip install readline (Linux/macOS) or pyreadline3 (Windows)")
+        print("📝 Command history: Disabled (install readline)")
 
     health_result = client.health()
 
     if not health_result.get('success'):
-        print(f"Connection failed: {health_result.get('error')}")
+        print(f"❌ Connection failed: {health_result.get('error')}")
         print("Please check your connection parameters and try again.")
+        print("💡 Run without arguments for interactive setup.")
         return 1
 
-    print("✓ Connected successfully!")
+    print("✅ Connected successfully!")
     if health_result.get('version'):
         print(f"Server version: {health_result['version']}")
     if health_result.get('uptime_hours'):

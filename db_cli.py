@@ -60,6 +60,23 @@ __email__ = "sgosain@ambivo.com"
 __status__ = "Production"
 __company__ = "Ambivo"
 
+# Suppress warnings before any imports
+import warnings
+import os
+import sys
+
+# Environment variable suppression
+os.environ['PYTHONWARNINGS'] = 'ignore'
+
+# Comprehensive warning suppression
+warnings.filterwarnings("ignore")
+warnings.simplefilter("ignore")
+
+# Specific suppressions
+for category in [UserWarning, DeprecationWarning, FutureWarning,
+                 PendingDeprecationWarning, ImportWarning, ResourceWarning]:
+    warnings.filterwarnings("ignore", category=category)
+
 
 def print_license():
     """Print the full license information."""
@@ -93,11 +110,10 @@ Report Issues: https://github.com/sgosain/ambivo-db-cli/issues
 Ambivo: https://www.ambivo.com
 """)
 
+
 import argparse
-import sys
 import textwrap
 import subprocess
-import os
 import getpass
 import json
 import sqlite3
@@ -115,13 +131,34 @@ try:
 except ImportError:
     READLINE_SUPPORT = False
 
-# Optional imports for CSV functionality
+# CSV functionality - FIXED: Import pandas properly with error handling
+CSV_SUPPORT = False
+pd = None  # Initialize to None
+create_engine = None
+
 try:
     import pandas as pd
     from sqlalchemy import create_engine
 
     CSV_SUPPORT = True
 except ImportError:
+    # Create dummy objects if packages not available
+    class DummyPandas:
+        def read_csv(self, *args, **kwargs):
+            raise ImportError("pandas not available - install with: pip install pandas")
+
+        @property
+        def DataFrame(self):
+            raise ImportError("pandas not available - install with: pip install pandas")
+
+
+    class DummySQLAlchemy:
+        def __call__(self, *args, **kwargs):
+            raise ImportError("sqlalchemy not available - install with: pip install sqlalchemy")
+
+
+    pd = DummyPandas()
+    create_engine = DummySQLAlchemy()
     CSV_SUPPORT = False
 
 # Optional database support
@@ -743,7 +780,8 @@ class MultiDatabaseClient:
                             interactive: bool = True,
                             create_table: bool = False):
         """Universal CSV import that works with any supported database."""
-        if not CSV_SUPPORT:
+        # FIXED: Check both CSV_SUPPORT and that pd/create_engine are available
+        if not CSV_SUPPORT or pd is None or create_engine is None:
             return {
                 "success": False,
                 "error": "CSV import requires pandas and sqlalchemy. Install with: pip install pandas sqlalchemy"
@@ -751,6 +789,15 @@ class MultiDatabaseClient:
 
         if not os.path.exists(csv_path):
             return {"success": False, "error": f"CSV file not found: {csv_path}"}
+
+        # Additional safety check - test that pandas actually works
+        try:
+            # Test pandas functionality
+            test_df = pd.DataFrame({'test': [1, 2, 3]})
+            if len(test_df) != 3:
+                raise Exception("pandas not working properly")
+        except Exception as e:
+            return {"success": False, "error": f"pandas not properly loaded: {e}"}
 
         try:
             # Create SQLAlchemy engine
@@ -897,8 +944,12 @@ class MultiDatabaseClient:
 
         return column_mapping
 
-    def _create_table_from_csv(self, table_name: str, csv_sample: pd.DataFrame, interactive: bool = True):
+    def _create_table_from_csv(self, table_name: str, csv_sample, interactive: bool = True):
         """Create table from CSV structure (database-agnostic)."""
+        # FIXED: Ensure csv_sample is a valid pandas DataFrame
+        if not CSV_SUPPORT or pd is None:
+            return {"success": False, "error": "pandas not available for table creation"}
+
         try:
             type_mapping = self.adapter.get_column_type_mapping()
             columns_sql = []
@@ -1120,21 +1171,168 @@ def print_help(db_type):
         print(db_specific[db_type])
 
 
+def print_banner():
+    """Print a friendly banner with basic info."""
+    print("=" * 60)
+    print("🐬 Ambivo Multi-Database CLI v2.0.0")
+    print("   Universal Database Client - MySQL, PostgreSQL, SQLite, DuckDB")
+    print("   Built by Hemant Gosain 'Sunny' | Ambivo")
+    print("=" * 60)
+    print()
+
+
+def print_quick_help():
+    """Print quick help for first-time users."""
+    print("Quick Start:")
+    print("  -H <host>     Database host (default: localhost)")
+    print("  -u <user>     Username (default: root)")
+    print("  -p <pass>     Password (will prompt if not provided)")
+    print("  -d <db>       Database name (optional)")
+    print("  --help        Full help")
+    print()
+    print("Examples:")
+    print("  ambivo-db-cli mysql -H localhost -u root")
+    print("  ambivo-db-cli postgresql -H myserver -u postgres -d myapp")
+    print("  ambivo-db-cli sqlite -f /path/to/database.db")
+    print("  ambivo-db-cli duckdb -f analytics.db")
+    print()
+
+
+def interactive_connection_setup():
+    """Interactive setup for connection parameters."""
+    print("🔧 Connection Setup")
+    print("Type 'h' for help, 'q' to quit")
+    print()
+
+    # Get database type
+    while True:
+        db_type = input("Database type [mysql/postgresql/sqlite/duckdb] (default: mysql): ").strip().lower()
+        if not db_type:
+            db_type = "mysql"
+        if db_type in ['h', 'help']:
+            print_quick_help()
+            continue
+        if db_type in ['q', 'quit', 'exit']:
+            return None
+        if db_type in ['mysql', 'postgresql', 'sqlite', 'duckdb']:
+            break
+        print("Invalid database type. Please choose: mysql, postgresql, sqlite, or duckdb")
+
+    connection_params = {'db_type': db_type}
+
+    if db_type in ['mysql', 'postgresql']:
+        # Network database setup
+        host = input(f"Host (default: localhost): ").strip()
+        connection_params['host'] = host if host else 'localhost'
+
+        if db_type == 'mysql':
+            port = input("Port (default: 3306): ").strip()
+            connection_params['port'] = int(port) if port else 3306
+            user = input("Username (default: root): ").strip()
+            connection_params['user'] = user if user else 'root'
+        else:  # postgresql
+            port = input("Port (default: 5432): ").strip()
+            connection_params['port'] = int(port) if port else 5432
+            user = input("Username (default: postgres): ").strip()
+            connection_params['user'] = user if user else 'postgres'
+
+        database = input("Database name (optional): ").strip()
+        if database:
+            connection_params['database'] = database
+
+        # Password prompt
+        password = getpass.getpass(f"Password for {connection_params['user']}@{connection_params['host']}: ")
+        if password:
+            connection_params['password'] = password
+
+    elif db_type in ['sqlite', 'duckdb']:
+        # File-based database setup
+        while True:
+            db_file = input(f"{db_type.upper()} file path (or 'memory' for in-memory): ").strip()
+            if db_file.lower() in ['memory', ':memory:', '']:
+                connection_params['database_path'] = ':memory:'
+                break
+            elif os.path.exists(db_file) or input(f"File doesn't exist. Create new? (y/n): ").lower() == 'y':
+                connection_params['database_path'] = db_file
+                break
+            else:
+                print("Please provide a valid file path or 'memory'")
+
+    return connection_params
+
+
 def main():
-    """Multi-database CLI entry point with MySQL as default."""
+    """Enhanced main entry point with better UX."""
+    # Show banner
+    print_banner()
+
+    # Check if this is likely a first run (no arguments provided)
+    if len(sys.argv) == 1:
+        print("Welcome! It looks like this is your first time using Ambivo DB CLI.")
+        print("Let's get you connected to your database.")
+        print()
+
+        user_choice = input("Would you like to (s)etup connection interactively or see (h)elp? [s/h]: ").strip().lower()
+
+        if user_choice in ['h', 'help']:
+            print_quick_help()
+            return 0
+        elif user_choice in ['q', 'quit', 'exit']:
+            print("Goodbye!")
+            return 0
+        elif user_choice in ['s', 'setup', '']:
+            # Interactive setup
+            params = interactive_connection_setup()
+            if not params:
+                print("Setup cancelled. Goodbye!")
+                return 0
+
+            # Create client with interactive params
+            try:
+                db_type = params.pop('db_type')
+                client = MultiDatabaseClient(db_type, **params)
+
+                # Test connection
+                print(f"\n🔌 Connecting to {db_type.upper()}...")
+                result = client.connect()
+
+                if not result.get('success'):
+                    print(f"❌ Connection failed: {result.get('error')}")
+                    return 1
+
+                print("✅ Connected successfully!")
+                print()
+
+                # Start interactive mode
+                try:
+                    interactive_mode(client, db_type)
+                finally:
+                    client.close()
+                    print(f"\n👋 Disconnected from {db_type.upper()}. Goodbye!")
+
+                return 0
+
+            except Exception as e:
+                print(f"❌ Error creating client: {e}")
+                return 1
+        else:
+            print("Invalid choice. Use --help for command line options.")
+            return 1
+
+    # Continue with original argument parsing for command line usage
     parser = argparse.ArgumentParser(
         description="Ambivo Multi-Database CLI - MySQL (default), PostgreSQL, SQLite, and DuckDB",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""
         Examples:
           # MySQL (default - backward compatible)
-          python multi_cli.py -H localhost -u root -p password -d mydb
-          python multi_cli.py mysql -H localhost -u root -p password -d mydb
+          ambivo-db-cli -H localhost -u root -p password -d mydb
+          ambivo-db-cli mysql -H localhost -u root -p password -d mydb
 
           # Other databases
-          python multi_cli.py postgresql -H localhost -u postgres -p password -d mydb
-          python multi_cli.py sqlite -f /path/to/database.db
-          python multi_cli.py duckdb -f /path/to/analytics.db
+          ambivo-db-cli postgresql -H localhost -u postgres -p password -d mydb
+          ambivo-db-cli sqlite -f /path/to/database.db
+          ambivo-db-cli duckdb -f /path/to/analytics.db
 
         CSV Import Examples (works with all databases):
           csv_import data.csv users --create-table
@@ -1158,6 +1356,7 @@ def main():
     parser.add_argument("--charset", default="utf8mb4", help="Character set (MySQL)")
     parser.add_argument("query", nargs="?", help="SQL query to execute directly")
     parser.add_argument("--raw", action="store_true", help="Raw output format")
+    parser.add_argument("--no-banner", action="store_true", help="Skip banner display")
 
     # Optional subcommand for explicit database selection
     subparsers = parser.add_subparsers(dest='db_type', help='Database type (optional - defaults to mysql)')
@@ -1190,10 +1389,14 @@ def main():
 
     args = parser.parse_args()
 
+    # Show banner unless suppressed
+    if not getattr(args, 'no_banner', False):
+        print_banner()
+
     # Default to MySQL if no subcommand specified
     if not args.db_type:
         args.db_type = 'mysql'
-        print("🐬 Defaulting to MySQL (use 'python multi_cli.py <db_type>' to specify different database)")
+        print("🐬 Defaulting to MySQL (use 'ambivo-db-cli <db_type>' to specify different database)")
 
     # Check dependencies and create client
     try:
@@ -1202,9 +1405,16 @@ def main():
                 print("❌ MySQL support requires: pip install mysql-connector-python")
                 return 1
 
+            # Only prompt for password if user is specified and password is not
             password = args.password
-            if not password and args.user:
+            if not password and args.user and not args.query:
+                # Interactive mode - prompt for password
                 password = getpass.getpass(f"Enter password for {args.user}@{args.host}: ")
+            elif not password and args.user and args.query:
+                # Command line query mode - show helpful message
+                print(
+                    f"❌ Password required for user '{args.user}'. Use -p <password> or run without arguments for interactive setup.")
+                return 1
 
             client = MultiDatabaseClient(
                 db_type='mysql',
@@ -1223,8 +1433,12 @@ def main():
                 return 1
 
             password = args.password
-            if not password and args.user:
+            if not password and args.user and not args.query:
                 password = getpass.getpass(f"Enter password for {args.user}@{args.host}: ")
+            elif not password and args.user and args.query:
+                print(
+                    f"❌ Password required for user '{args.user}'. Use -p <password> or run without arguments for interactive setup.")
+                return 1
 
             client = MultiDatabaseClient(
                 db_type='postgresql',
@@ -1290,7 +1504,7 @@ def main():
     print()
 
     # Handle direct query execution (MySQL compatibility)
-    if hasattr(args, 'query') and args.query:
+    if args.query:
         result = client.execute(args.query)
         print_result(result, not getattr(args, 'raw', False))
         client.close()

@@ -1,251 +1,171 @@
+# enhanced_db_cli.spec - Fixed pandas import issue
 # -*- mode: python ; coding: utf-8 -*-
-"""
-PyInstaller spec file for Ambivo Multi-Database CLI (db_cli.py)
-
-This spec file creates a standalone executable for the universal database CLI
-that supports MySQL, PostgreSQL, SQLite, and DuckDB.
-
-Author: Hemant Gosain 'Sunny'
-Company: Ambivo
-License: MIT
-"""
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
-
-# Add the parent directory to Python path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 block_cipher = None
 
-# Collect all submodules for database drivers
-mysql_modules = collect_submodules('mysql.connector')
-psycopg2_modules = collect_submodules('psycopg2')
-sqlalchemy_modules = collect_submodules('sqlalchemy')
-
-# Analysis for Multi-Database CLI
 a = Analysis(
-    ['../db_cli.py'],  # Relative path to source file from specs/ directory
+    ['../db_cli.py'],
     pathex=['.'],
     binaries=[],
     datas=[],
     hiddenimports=[
-        # MySQL connector dependencies
+        # Core database dependencies
         'mysql.connector',
         'mysql.connector.conversion',
-        'mysql.connector.abstracts',
-        'mysql.connector.constants',
         'mysql.connector.cursor',
-        'mysql.connector.pooling',
-        'mysql.connector.protocol',
         'mysql.connector.errors',
-        'mysql.connector.locales',
-        'mysql.connector.charsets',
+        'mysql.connector.constants',
         'mysql.connector.authentication',
-        'mysql.connector.network',
-        'mysql.connector.utils',
-        'mysql.connector.catch23',
 
         # PostgreSQL dependencies
         'psycopg2',
         'psycopg2.extras',
         'psycopg2.extensions',
-        'psycopg2.pool',
-        'psycopg2._psycopg',
-        'psycopg2._range',
-        'psycopg2.tz',
-        'psycopg2.errorcodes',
-        'psycopg2.sql',
 
-        # DuckDB dependencies
+        # DuckDB
         'duckdb',
 
-        # SQLite (built-in but ensure it's included)
+        # SQLite (built-in)
         'sqlite3',
 
-        # SQLAlchemy and its dialects
+        # SQLAlchemy - ESSENTIAL modules
         'sqlalchemy',
         'sqlalchemy.engine',
         'sqlalchemy.engine.default',
-        'sqlalchemy.engine.reflection',
         'sqlalchemy.sql',
         'sqlalchemy.sql.sqltypes',
-        'sqlalchemy.sql.type_api',
         'sqlalchemy.dialects',
         'sqlalchemy.dialects.mysql',
         'sqlalchemy.dialects.mysql.mysqlconnector',
         'sqlalchemy.dialects.postgresql',
         'sqlalchemy.dialects.postgresql.psycopg2',
         'sqlalchemy.dialects.sqlite',
-        'sqlalchemy.dialects.sqlite.pysqlite',
         'sqlalchemy.pool',
-        'sqlalchemy.event',
-        'sqlalchemy.util',
+        'sqlalchemy.types',
 
-        # Pandas dependencies for CSV import
+        # Pandas - CRITICAL: Include ALL necessary pandas modules
         'pandas',
+        'pandas.core',
+        'pandas.core.arrays',
+        'pandas.core.arrays.categorical',
+        'pandas.core.arrays.datetimes',
+        'pandas.core.arrays.numeric',
+        'pandas.core.arrays.period',
+        'pandas.core.arrays.timedeltas',
+        'pandas.core.computation',
+        'pandas.core.dtypes',
+        'pandas.core.dtypes.common',
+        'pandas.core.dtypes.dtypes',
+        'pandas.core.dtypes.generic',
+        'pandas.core.dtypes.inference',
+        'pandas.core.dtypes.missing',
+        'pandas.core.frame',
+        'pandas.core.generic',
+        'pandas.core.groupby',
+        'pandas.core.indexes',
+        'pandas.core.indexes.api',
+        'pandas.core.indexes.base',
+        'pandas.core.indexes.category',
+        'pandas.core.indexes.datetimes',
+        'pandas.core.indexes.extension',
+        'pandas.core.indexes.frozen',
+        'pandas.core.indexes.multi',
+        'pandas.core.indexes.numeric',
+        'pandas.core.indexes.period',
+        'pandas.core.indexes.range',
+        'pandas.core.indexes.timedeltas',
+        'pandas.core.internals',
+        'pandas.core.ops',
+        'pandas.core.reshape',
+        'pandas.core.series',
+        'pandas.core.tools',
         'pandas.io',
         'pandas.io.sql',
         'pandas.io.common',
         'pandas.io.parsers',
-        'pandas.core',
-        'pandas.core.dtypes',
+        'pandas.io.parsers.readers',
         'pandas._libs',
+        'pandas._libs.lib',
         'pandas._libs.tslib',
+        'pandas._libs.hashtable',
+        'pandas._libs.algos',
+        'pandas._libs.interval',
+        'pandas._libs.join',
+        'pandas._libs.missing',
+        'pandas._libs.reduction',
+        'pandas._libs.reshape',
+        'pandas._libs.sparse',
+        'pandas._libs.writers',
+        'pandas.util',
+        'pandas.util._decorators',
 
-        # Core dependencies
+        # NumPy - Required by pandas
+        'numpy',
+        'numpy.core',
+        'numpy.core._multiarray_umath',
+        'numpy.core.multiarray',
+        'numpy.core.numeric',
+        'numpy.core.umath',
+        'numpy.lib',
+        'numpy.lib.format',
+        'numpy.linalg',
+        'numpy.random',
+        'numpy.random._pickle',
+        'numpy.random.mtrand',
+
+        # Other essential modules
         'tabulate',
-        'tabulate.tabulate',
-
-        # Optional readline support
-        'readline',
-        'rlcompleter',
-
-        # Standard library modules that might be missed
+        'datetime',
         'json',
         'csv',
-        'datetime',
         'getpass',
-        'subprocess',
-        'textwrap',
         'argparse',
+        'textwrap',
+        'subprocess',
+        'warnings',
+        'os',
+        'sys',
         'abc',
         'typing',
         'pathlib',
-        'os',
-        'sys',
-        'platform',
-        'socket',
-        'ssl',
-        'hashlib',
-        'hmac',
-        'base64',
-        'urllib',
-        'urllib.parse',
-        'email',
-        'email.utils',
-        'decimal',
-        'uuid',
-        'struct',
-        'collections',
-        'collections.abc',
-        'functools',
-        'itertools',
-        'operator',
-        'copy',
-        'pickle',
-        'io',
-        'warnings',
-        'logging',
-        're',
-        'string',
-        'time',
-        'calendar',
-        'math',
-        'random',
-        'threading',
-        'queue',
-        'multiprocessing',
-        'concurrent',
-        'concurrent.futures',
 
-        # Additional SQLAlchemy modules
-        'sqlalchemy.orm',
-        'sqlalchemy.schema',
-        'sqlalchemy.types',
-        'sqlalchemy.inspection',
-        'sqlalchemy.exc',
-
-        # Additional pandas modules
-        'pandas.plotting',
-        'pandas.tseries',
-        'pandas.api',
-        'pandas.compat',
-
-        # NumPy (pandas dependency)
-        'numpy',
-        'numpy.core',
-        'numpy.lib',
-        'numpy.random',
-
-        # Additional database-related modules
-        'dateutil',
-        'dateutil.parser',
-        'pytz',
-        'zoneinfo',
-
-    ] + mysql_modules + psycopg2_modules + sqlalchemy_modules,
+        # Optional but useful
+        'readline',
+        'rlcompleter',
+    ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[
+        '../hooks/rthook_suppress_warnings.py'
+    ],
     excludes=[
-        # Exclude GUI and unnecessary modules to reduce size
+        # Exclude problematic modules
+        'distutils',
+        'setuptools',
+        'pkg_resources',
+
+        # Heavy modules not needed
         'matplotlib',
-        'matplotlib.pyplot',
         'tkinter',
-        'tkinter.ttk',
-        'PyQt4',
         'PyQt5',
         'PyQt6',
-        'PySide',
-        'PySide2',
-        'PySide6',
-        'wx',
-        'IPython',
         'jupyter',
-        'notebook',
-        'sphinx',
-        'pytest',
-        'setuptools',
-        'distutils',
-        'pip',
-        'wheel',
-
-        # Exclude development/testing modules
-        'test',
-        'tests',
-        'testing',
-        'unittest',
-        'doctest',
-        'pdb',
-        'profile',
-        'cProfile',
-        'pstats',
-        'timeit',
-        'trace',
-
-        # Exclude other heavy modules not needed
+        'IPython',
         'scipy',
         'sklearn',
         'tensorflow',
         'torch',
-        'cv2',
-        'PIL',
-        'Pillow',
-        'bokeh',
-        'plotly',
-        'seaborn',
-        'statsmodels',
 
-        # Exclude unused pandas modules
-        'pandas.plotting._matplotlib',
+        # Unused pandas modules
+        'pandas.plotting',
         'pandas.io.clipboard',
         'pandas.io.excel',
         'pandas.io.feather',
-        'pandas.io.gbq',
-        'pandas.io.html',
-        'pandas.io.json',
-        'pandas.io.orc',
         'pandas.io.parquet',
         'pandas.io.pickle',
-        'pandas.io.pytables',
-        'pandas.io.sas',
-        'pandas.io.spss',
-        'pandas.io.stata',
-        'pandas.plotting._core',
-        'pandas.plotting._style',
-        'pandas.plotting._tools',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -253,9 +173,13 @@ a = Analysis(
     noarchive=False,
 )
 
-# Remove duplicate entries
+# Clean duplicates and remove problematic entries
 a.pure = list(set(a.pure))
 a.binaries = list(set(a.binaries))
+
+# Remove distutils entries
+a.pure = [x for x in a.pure if not x[0].startswith('distutils')]
+a.binaries = [x for x in a.binaries if not x[0].startswith('distutils')]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -270,14 +194,12 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,                    # Enable UPX compression for smaller binaries
+    upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,                # Keep console for CLI application
+    console=True,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,                   # Add path to .ico file if you have one: 'assets/ambivo-icon.ico'
-    version='../version_info.txt' if os.path.exists('../version_info.txt') else None,
 )
