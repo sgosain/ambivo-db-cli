@@ -111,6 +111,7 @@ jobs:
           ${{ runner.os }}-pip-
 
     - name: Install dependencies with distutils fix
+      shell: bash
       run: |
         python -m pip install --upgrade pip
         pip install "setuptools>=65.0.0,<70.0.0"
@@ -124,6 +125,7 @@ jobs:
 
     - name: Install macOS packaging tools
       if: matrix.platform == 'macos'
+      shell: bash
       run: |
         # Install create-dmg for creating professional DMG files
         brew install create-dmg
@@ -131,20 +133,21 @@ jobs:
         create-dmg --version
 
     - name: Display Python and package versions
+      shell: bash
       run: |
         python --version
         pip list | grep -E "(setuptools|pyinstaller|pandas|sqlalchemy)"
-      shell: bash
 
     - name: Set environment variables for distutils fix
+      shell: bash
       run: |
         echo "SETUPTOOLS_USE_DISTUTILS=local" >> $GITHUB_ENV
         echo "DISTUTILS_USE_SDK=1" >> $GITHUB_ENV
         echo "PYTHONWARNINGS=ignore" >> $GITHUB_ENV
         echo "BUILD_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
-      shell: bash
 
     - name: Create specs directory and warning hook
+      shell: bash
       run: |
         mkdir -p specs hooks
         
@@ -168,9 +171,9 @@ jobs:
         import io
         sys.stderr = io.StringIO()
         EOF
-      shell: bash
 
     - name: Create MySQL CLI spec file
+      shell: bash
       run: |
         cat > specs/mysql_cli.spec << 'EOF'
         # -*- mode: python ; coding: utf-8 -*-
@@ -245,9 +248,9 @@ jobs:
             entitlements_file=None,
         )
         EOF
-      shell: bash
 
     - name: Create Multi-DB CLI spec file
+      shell: bash
       run: |
         cat > specs/db_cli.spec << 'EOF'
         # -*- mode: python ; coding: utf-8 -*-
@@ -325,9 +328,9 @@ jobs:
             entitlements_file=None,
         )
         EOF
-      shell: bash
 
     - name: Build MySQL CLI (with fallback)
+      shell: bash
       run: |
         echo "🔨 Building MySQL CLI..."
         
@@ -373,9 +376,9 @@ jobs:
             --runtime-hook=hooks/rthook_suppress_warnings.py \
             mysql_cli.py && echo "✅ MySQL CLI built with direct method" || echo "❌ MySQL CLI build failed completely"
         fi
-      shell: bash
 
     - name: Build Multi-Database CLI (with fallback)
+      shell: bash
       run: |
         echo "🔨 Building Multi-Database CLI..."
         
@@ -423,10 +426,10 @@ jobs:
             --runtime-hook=hooks/rthook_suppress_warnings.py \
             db_cli.py && echo "✅ Multi-DB CLI built with direct method" || echo "❌ Multi-DB CLI build failed completely"
         fi
-      shell: bash
 
     - name: Verify builds and create summary
       continue-on-error: true  # Don't fail job here, let individual steps handle it
+      shell: bash
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
@@ -436,8 +439,16 @@ jobs:
         db_success=false
         
         if [ -f "ambivo-mysql-cli${{ matrix.ext }}" ]; then
-          size=$(stat -c%s "ambivo-mysql-cli${{ matrix.ext }}" 2>/dev/null || stat -f%z "ambivo-mysql-cli${{ matrix.ext }}" 2>/dev/null || echo "0")
-          size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+          if command -v stat >/dev/null 2>&1; then
+            size=$(stat -c%s "ambivo-mysql-cli${{ matrix.ext }}" 2>/dev/null || stat -f%z "ambivo-mysql-cli${{ matrix.ext }}" 2>/dev/null || echo "0")
+            if command -v bc >/dev/null 2>&1; then
+              size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+            else
+              size_mb=$(python -c "print(f'{$size / 1024 / 1024:.1f}')" 2>/dev/null || echo "N/A")
+            fi
+          else
+            size_mb="N/A"
+          fi
           echo "✅ MySQL CLI: ${size_mb}MB"
           mysql_success=true
         else
@@ -445,8 +456,16 @@ jobs:
         fi
         
         if [ -f "ambivo-db-cli${{ matrix.ext }}" ]; then
-          size=$(stat -c%s "ambivo-db-cli${{ matrix.ext }}" 2>/dev/null || stat -f%z "ambivo-db-cli${{ matrix.ext }}" 2>/dev/null || echo "0")
-          size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+          if command -v stat >/dev/null 2>&1; then
+            size=$(stat -c%s "ambivo-db-cli${{ matrix.ext }}" 2>/dev/null || stat -f%z "ambivo-db-cli${{ matrix.ext }}" 2>/dev/null || echo "0")
+            if command -v bc >/dev/null 2>&1; then
+              size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+            else
+              size_mb=$(python -c "print(f'{$size / 1024 / 1024:.1f}')" 2>/dev/null || echo "N/A")
+            fi
+          else
+            size_mb="N/A"
+          fi
           echo "✅ Multi-DB CLI: ${size_mb}MB"
           db_success=true
         else
@@ -471,10 +490,10 @@ jobs:
           echo "🎉 Both builds succeeded!"
           echo "partial_success=true" >> $GITHUB_ENV
         fi
-      shell: bash
 
     - name: Create convenience scripts (Unix)
       if: matrix.platform != 'windows'
+      shell: bash
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
@@ -498,10 +517,10 @@ jobs:
           chmod +x dbcli
           echo "✅ Created dbcli convenience script"
         fi
-      shell: bash
 
     - name: Create convenience scripts (Windows)
       if: matrix.platform == 'windows'
+      shell: bash
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
@@ -519,9 +538,9 @@ jobs:
           echo '"%DIR%ambivo-db-cli.exe" %*' >> dbcli.bat
           echo "✅ Created dbcli.bat convenience script"
         fi
-      shell: bash
 
     - name: Create README and install scripts
+      shell: bash
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
@@ -692,33 +711,3 @@ jobs:
           cp ambivo-mysql-cli "$INSTALL_DIR/"
           cp mysql "$INSTALL_DIR/" 2>/dev/null || true
           echo "✅ Installed ambivo-mysql-cli"
-        fi
-        if [ "$db_available" = "true" ] && [ -f "ambivo-db-cli" ]; then
-          cp ambivo-db-cli "$INSTALL_DIR/"
-          cp dbcli "$INSTALL_DIR/" 2>/dev/null || true
-          echo "✅ Installed ambivo-db-cli"
-        fi
-        
-        # Make executable
-        chmod +x "$INSTALL_DIR"/* 2>/dev/null || true
-        
-        echo ""
-        echo "✅ Installed to: $INSTALL_DIR"
-        echo ""
-        echo "Add to PATH by adding this to your ~/.bashrc or ~/.zshrc:"
-        echo "export PATH=\$PATH:$INSTALL_DIR"
-        echo ""
-        echo "💡 Tip: Run without arguments for interactive setup"
-        EOF
-          fi
-          chmod +x install.sh
-        else
-          # Windows install script
-          cat > install.bat << 'EOF'
-        @echo off
-        echo 🚀 Installing Ambivo Database CLI Suite...
-        
-        set "INSTALL_DIR=%USERPROFILE%\AppData\Local\Ambivo"
-        if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-        
-        if exist "ambivo-mysql-cli.exe
