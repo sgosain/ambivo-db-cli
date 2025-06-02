@@ -246,7 +246,8 @@ class EnhancedMySQLClient:
                 'autocommit': True,
                 'connection_timeout': self.timeout,
                 'charset': self.charset,
-                'use_unicode': True
+                'use_unicode': True,
+                'use_pure': True  # Force pure Python
             }
 
             if self.database:
