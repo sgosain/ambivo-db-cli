@@ -306,8 +306,15 @@ class MySQLAdapter(DatabaseAdapter):
             if self.ssl_disabled:
                 config['ssl_disabled'] = True
 
-            self.connection = mysql.connector.connect(**config)
-            return {"success": True, "message": "Connected successfully"}
+            # Try connection with pure Python first
+            try:
+                self.connection = mysql.connector.connect(**config)
+                return {"success": True, "message": "Connected successfully"}
+            except mysql.connector.Error as e:
+                # If pure Python fails, try without use_pure (fallback)
+                config.pop('use_pure', None)
+                self.connection = mysql.connector.connect(**config)
+                return {"success": True, "message": "Connected successfully"}
 
         except mysql.connector.Error as e:
             return {"success": False, "error": f"MySQL Error: {e}"}
