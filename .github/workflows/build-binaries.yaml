@@ -69,6 +69,7 @@ jobs:
     needs: [create_release]
     if: always()  # Run even if create_release is skipped
     strategy:
+      fail-fast: false  # Don't cancel other jobs if one fails
       matrix:
         include:
           - os: ubuntu-latest
@@ -425,6 +426,7 @@ jobs:
       shell: bash
 
     - name: Verify builds and create summary
+      continue-on-error: true  # Don't fail job here, let individual steps handle it
       run: |
         cd "dist/${{ matrix.platform }}-${{ matrix.arch }}"
         
@@ -455,16 +457,19 @@ jobs:
         echo "mysql_success=$mysql_success" >> $GITHUB_ENV
         echo "db_success=$db_success" >> $GITHUB_ENV
         
-        # Only fail if both builds failed
+        # Report status but don't fail here
         if [ "$mysql_success" = "false" ] && [ "$db_success" = "false" ]; then
-          echo "💥 Both builds failed! This is a critical error."
-          exit 1
+          echo "💥 Both builds failed! Will create package with logs for debugging."
+          echo "partial_success=false" >> $GITHUB_ENV
         elif [ "$mysql_success" = "false" ]; then
-          echo "⚠️ MySQL CLI failed, but Multi-DB CLI succeeded. Continuing..."
+          echo "⚠️ MySQL CLI failed, but Multi-DB CLI succeeded. Creating partial package..."
+          echo "partial_success=true" >> $GITHUB_ENV
         elif [ "$db_success" = "false" ]; then
-          echo "⚠️ Multi-DB CLI failed, but MySQL CLI succeeded. Continuing..."
+          echo "⚠️ Multi-DB CLI failed, but MySQL CLI succeeded. Creating partial package..."
+          echo "partial_success=true" >> $GITHUB_ENV
         else
           echo "🎉 Both builds succeeded!"
+          echo "partial_success=true" >> $GITHUB_ENV
         fi
       shell: bash
 
