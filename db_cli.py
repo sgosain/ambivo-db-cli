@@ -2047,6 +2047,15 @@ def interactive_connection_setup():
 
 def main():
     """Enhanced main entry point with better UX."""
+    import sys
+    import platform
+
+    if platform.system().lower() == 'darwin':
+        print("🚀 Ambivo Database CLI")
+        print("   Loading application, please wait...")
+        print("   (First launch may take 30-60 seconds)")
+        print()
+        sys.stdout.flush()
     # Show banner
     print_banner()
 

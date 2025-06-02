@@ -1119,6 +1119,15 @@ def interactive_mysql_setup():
 
 def main():
     """Enhanced main entry point for Ambivo MySQL CLI."""
+    import sys
+    import platform
+
+    if platform.system().lower() == 'darwin':
+        print("🚀 Ambivo MYSQL CLI")
+        print("   Loading application, please wait...")
+        print("   (First launch may take 30-60 seconds)")
+        print()
+        sys.stdout.flush()
     # Show banner
     print_mysql_banner()
 
