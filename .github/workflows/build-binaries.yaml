@@ -52,6 +52,7 @@ jobs:
           - ✅ Command history and tab completion
           - ✅ Professional table formatting
           - ✅ Interactive setup for first-time users
+          - ✅ Pure Python MySQL driver (no authentication plugin issues)
           
           ### 🚀 Quick Start
           1. Download the appropriate package for your platform and needs
@@ -165,13 +166,13 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install dependencies with distutils fix
+    - name: Install dependencies with PyMySQL
       shell: bash
       run: |
         python -m pip install --upgrade pip
         pip install "setuptools>=65.0.0,<70.0.0"
         pip install "pyinstaller>=5.13.0,<6.0.0"
-        pip install mysql-connector-python
+        pip install PyMySQL  # Pure Python MySQL driver
         pip install psycopg2-binary
         pip install duckdb
         pip install "pandas>=1.5.0,<3.0.0"
@@ -191,7 +192,7 @@ jobs:
       shell: bash
       run: |
         python --version
-        pip list | grep -E "(setuptools|pyinstaller|pandas|sqlalchemy)"
+        pip list | grep -E "(setuptools|pyinstaller|pandas|sqlalchemy|PyMySQL)"
 
     - name: Set environment variables for distutils fix
       shell: bash
@@ -201,7 +202,7 @@ jobs:
         echo "PYTHONWARNINGS=ignore" >> $GITHUB_ENV
         echo "BUILD_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
 
-    - name: Create specs directory and warning hook
+    - name: Create specs directory and hooks
       shell: bash
       run: |
         mkdir -p specs hooks
@@ -227,6 +228,18 @@ jobs:
         sys.stderr = io.StringIO()
         EOF
 
+        # Create startup message hook for macOS
+        cat > hooks/rthook_startup_message.py << 'EOF'
+        import sys
+        import platform
+
+        # Show immediate loading message on macOS
+        if platform.system().lower() == 'darwin':
+            print("🚀 Starting Ambivo Database CLI...")
+            print("   Loading dependencies, please wait...")
+            sys.stdout.flush()
+        EOF
+
     - name: Create MySQL CLI spec file
       if: matrix.cli_type == 'mysql'
       shell: bash
@@ -235,18 +248,10 @@ jobs:
         # -*- mode: python ; coding: utf-8 -*-
         import sys
         import os
-        from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+        from PyInstaller.utils.hooks import collect_data_files
 
         APP_NAME = "ambivo-mysql-cli"
         block_cipher = None
-
-        # Collect MySQL connector data and binaries
-        try:
-            mysql_datas = collect_data_files('mysql.connector')
-            mysql_binaries = collect_dynamic_libs('mysql.connector')
-        except:
-            mysql_datas = []
-            mysql_binaries = []
 
         try:
             pandas_datas = collect_data_files('pandas')
@@ -258,50 +263,35 @@ jobs:
         except:
             sqlalchemy_datas = []
 
-        # Add MySQL plugins manually
-        mysql_plugins = []
-        try:
-            import mysql.connector
-            mysql_path = os.path.dirname(mysql.connector.__file__)
-            vendor_path = os.path.join(mysql_path, 'vendor')
-            if os.path.exists(vendor_path):
-                for root, dirs, files in os.walk(vendor_path):
-                    for file in files:
-                        src = os.path.join(root, file)
-                        dst = os.path.relpath(src, mysql_path)
-                        mysql_plugins.append((src, os.path.join('mysql', dst)))
-        except:
-            pass
-
         hiddenimports = [
-            'mysql.connector', 'mysql.connector.cursor', 'mysql.connector.errors',
-            'mysql.connector.conversion', 'mysql.connector.locales.eng',
-            'mysql.connector.plugins', 'mysql.connector.authentication',
+            'pymysql', 'pymysql.cursors', 'pymysql.connections',
+            'pymysql.constants', 'pymysql.converters', 'pymysql.charset',
             'pandas', 'pandas.io.sql', 'sqlalchemy', 'sqlalchemy.dialects.mysql',
-            'sqlalchemy.dialects.mysql.mysqlconnector', 'tabulate', 'importlib_metadata'
+            'sqlalchemy.dialects.mysql.pymysql', 'tabulate', 'importlib_metadata'
         ]
 
         if sys.platform.startswith('win'):
             hiddenimports.extend(['win32api', 'win32con'])
-
-        try:
-            import readline
-            hiddenimports.append('readline')
-        except ImportError:
-            pass
+        elif sys.platform.startswith('darwin'):
+            hiddenimports.extend(['readline'])
 
         a = Analysis(
             ['mysql_cli.py'],
             pathex=[],
-            binaries=mysql_binaries,
-            datas=pandas_datas + sqlalchemy_datas + mysql_datas + mysql_plugins,
+            binaries=[],
+            datas=pandas_datas + sqlalchemy_datas,
             hiddenimports=hiddenimports,
             hookspath=[],
             hooksconfig={},
-            runtime_hooks=['hooks/rthook_suppress_warnings.py'] if os.path.exists('hooks/rthook_suppress_warnings.py') else [],
+            runtime_hooks=[
+                'hooks/rthook_suppress_warnings.py',
+                'hooks/rthook_startup_message.py'
+            ],
             excludes=[
-                'psycopg2', 'duckdb', 'sqlite3', 'matplotlib', 'tkinter', 'PyQt5', 'PyQt6',
-                'scipy', 'sklearn', 'tensorflow', 'torch', 'IPython', 'jupyter'
+                'mysql.connector', 'psycopg2', 'duckdb', 'sqlite3', 
+                'matplotlib', 'tkinter', 'PyQt5', 'PyQt6',
+                'scipy', 'sklearn', 'tensorflow', 'torch', 'IPython', 'jupyter',
+                'PIL', 'numpy.distutils', 'distutils'
             ],
             win_no_prefer_redirects=False,
             win_private_assemblies=False,
@@ -316,8 +306,8 @@ jobs:
             name=APP_NAME,
             debug=False,
             bootloader_ignore_signals=False,
-            strip=False,
-            upx=True,
+            strip=True,  # Strip symbols for smaller size
+            upx=False if sys.platform.startswith('darwin') else True,  # Disable UPX on macOS
             upx_exclude=['python*.dll', 'api-ms-win-*.dll', 'vcruntime*.dll'],
             runtime_tmpdir=None,
             console=True,
@@ -337,18 +327,10 @@ jobs:
         # -*- mode: python ; coding: utf-8 -*-
         import sys
         import os
-        from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+        from PyInstaller.utils.hooks import collect_data_files
 
         APP_NAME = "ambivo-db-cli"
         block_cipher = None
-
-        # Collect MySQL connector data and binaries
-        try:
-            mysql_datas = collect_data_files('mysql.connector')
-            mysql_binaries = collect_dynamic_libs('mysql.connector')
-        except:
-            mysql_datas = []
-            mysql_binaries = []
 
         try:
             pandas_datas = collect_data_files('pandas')
@@ -360,53 +342,39 @@ jobs:
         except:
             sqlalchemy_datas = []
 
-        # Add MySQL plugins manually
-        mysql_plugins = []
-        try:
-            import mysql.connector
-            mysql_path = os.path.dirname(mysql.connector.__file__)
-            vendor_path = os.path.join(mysql_path, 'vendor')
-            if os.path.exists(vendor_path):
-                for root, dirs, files in os.walk(vendor_path):
-                    for file in files:
-                        src = os.path.join(root, file)
-                        dst = os.path.relpath(src, mysql_path)
-                        mysql_plugins.append((src, os.path.join('mysql', dst)))
-        except:
-            pass
-
         hiddenimports = [
-            # Database drivers
-            'mysql.connector', 'mysql.connector.cursor', 'mysql.connector.errors',
-            'mysql.connector.plugins', 'mysql.connector.authentication',
+            # MySQL via PyMySQL
+            'pymysql', 'pymysql.cursors', 'pymysql.connections',
+            'pymysql.constants', 'pymysql.converters', 'pymysql.charset',
+            # Other database drivers
             'psycopg2', 'psycopg2.extras', 'duckdb', 'sqlite3',
             # Data processing
             'pandas', 'pandas.io.sql', 'sqlalchemy', 'sqlalchemy.dialects.mysql',
-            'sqlalchemy.dialects.postgresql', 'sqlalchemy.dialects.sqlite',
-            'tabulate', 'importlib_metadata'
+            'sqlalchemy.dialects.mysql.pymysql', 'sqlalchemy.dialects.postgresql', 
+            'sqlalchemy.dialects.sqlite', 'tabulate', 'importlib_metadata'
         ]
 
         if sys.platform.startswith('win'):
             hiddenimports.extend(['win32api', 'win32con'])
-
-        try:
-            import readline
-            hiddenimports.append('readline')
-        except ImportError:
-            pass
+        elif sys.platform.startswith('darwin'):
+            hiddenimports.extend(['readline'])
 
         a = Analysis(
             ['db_cli.py'],
             pathex=[],
-            binaries=mysql_binaries,
-            datas=pandas_datas + sqlalchemy_datas + mysql_datas + mysql_plugins,
+            binaries=[],
+            datas=pandas_datas + sqlalchemy_datas,
             hiddenimports=hiddenimports,
             hookspath=[],
             hooksconfig={},
-            runtime_hooks=['hooks/rthook_suppress_warnings.py'] if os.path.exists('hooks/rthook_suppress_warnings.py') else [],
+            runtime_hooks=[
+                'hooks/rthook_suppress_warnings.py',
+                'hooks/rthook_startup_message.py'
+            ],
             excludes=[
-                'matplotlib', 'tkinter', 'PyQt5', 'PyQt6', 'scipy', 'sklearn', 
-                'tensorflow', 'torch', 'IPython', 'jupyter', 'test', 'tests'
+                'mysql.connector', 'matplotlib', 'tkinter', 'PyQt5', 'PyQt6',
+                'scipy', 'sklearn', 'tensorflow', 'torch', 'IPython', 'jupyter',
+                'PIL', 'numpy.distutils', 'distutils', 'test', 'tests'
             ],
             win_no_prefer_redirects=False,
             win_private_assemblies=False,
@@ -421,8 +389,8 @@ jobs:
             name=APP_NAME,
             debug=False,
             bootloader_ignore_signals=False,
-            strip=False,
-            upx=True,
+            strip=True,  # Strip symbols for smaller size
+            upx=False if sys.platform.startswith('darwin') else True,  # Disable UPX on macOS
             upx_exclude=['python*.dll', 'api-ms-win-*.dll', 'vcruntime*.dll'],
             runtime_tmpdir=None,
             console=True,
@@ -437,7 +405,7 @@ jobs:
     - name: Build CLI Application
       shell: bash
       run: |
-        echo "🔨 Building ${{ matrix.cli_type }} CLI..."
+        echo "🔨 Building ${{ matrix.cli_type }} CLI with PyMySQL..."
         
         # Create output directory
         mkdir -p "dist/${{ matrix.platform }}-${{ matrix.arch }}"
@@ -460,28 +428,30 @@ jobs:
           
           # Determine hidden imports based on CLI type
           if [ "${{ matrix.cli_type }}" = "mysql" ]; then
-            HIDDEN_IMPORTS="--hidden-import=mysql.connector \
-              --hidden-import=mysql.connector.cursor \
-              --hidden-import=mysql.connector.errors \
-              --hidden-import=mysql.connector.conversion \
-              --hidden-import=mysql.connector.plugins \
-              --hidden-import=mysql.connector.authentication \
+            HIDDEN_IMPORTS="--hidden-import=pymysql \
+              --hidden-import=pymysql.cursors \
+              --hidden-import=pymysql.connections \
+              --hidden-import=pymysql.constants \
+              --hidden-import=pymysql.converters \
+              --hidden-import=pymysql.charset \
               --hidden-import=pandas \
               --hidden-import=pandas.io.sql \
               --hidden-import=sqlalchemy \
               --hidden-import=sqlalchemy.engine \
               --hidden-import=sqlalchemy.dialects.mysql \
-              --hidden-import=sqlalchemy.dialects.mysql.mysqlconnector \
+              --hidden-import=sqlalchemy.dialects.mysql.pymysql \
               --hidden-import=tabulate \
               --hidden-import=importlib_metadata \
+              --exclude-module=mysql.connector \
               --exclude-module=psycopg2 \
               --exclude-module=duckdb"
           else
-            HIDDEN_IMPORTS="--hidden-import=mysql.connector \
-              --hidden-import=mysql.connector.cursor \
-              --hidden-import=mysql.connector.errors \
-              --hidden-import=mysql.connector.plugins \
-              --hidden-import=mysql.connector.authentication \
+            HIDDEN_IMPORTS="--hidden-import=pymysql \
+              --hidden-import=pymysql.cursors \
+              --hidden-import=pymysql.connections \
+              --hidden-import=pymysql.constants \
+              --hidden-import=pymysql.converters \
+              --hidden-import=pymysql.charset \
               --hidden-import=psycopg2 \
               --hidden-import=psycopg2.extras \
               --hidden-import=duckdb \
@@ -491,10 +461,12 @@ jobs:
               --hidden-import=sqlalchemy \
               --hidden-import=sqlalchemy.engine \
               --hidden-import=sqlalchemy.dialects.mysql \
+              --hidden-import=sqlalchemy.dialects.mysql.pymysql \
               --hidden-import=sqlalchemy.dialects.postgresql \
               --hidden-import=sqlalchemy.dialects.sqlite \
               --hidden-import=tabulate \
-              --hidden-import=importlib_metadata"
+              --hidden-import=importlib_metadata \
+              --exclude-module=mysql.connector"
           fi
           
           # Fallback to direct build
@@ -514,7 +486,11 @@ jobs:
             --exclude-module=sklearn \
             --exclude-module=tensorflow \
             --exclude-module=torch \
+            --exclude-module=PIL \
+            --exclude-module=numpy.distutils \
+            --exclude-module=distutils \
             --runtime-hook=hooks/rthook_suppress_warnings.py \
+            --runtime-hook=hooks/rthook_startup_message.py \
             "${{ matrix.python_file }}" && echo "✅ ${{ matrix.cli_type }} CLI built with direct method" || echo "❌ ${{ matrix.cli_type }} CLI build failed completely"
         fi
 
@@ -536,7 +512,7 @@ jobs:
           else
             size_mb="N/A"
           fi
-          echo "✅ ${{ matrix.cli_type }} CLI: ${size_mb}MB"
+          echo "✅ ${{ matrix.cli_type }} CLI: ${size_mb}MB (PyMySQL-powered)"
           echo "build_success=true" >> $GITHUB_ENV
         else
           echo "❌ ${{ matrix.cli_type }} CLI: Build failed"
@@ -595,14 +571,14 @@ jobs:
         # Create CLI-specific README
         if [ "${{ matrix.cli_type }}" = "mysql" ]; then
           CLI_NAME="MySQL CLI"
-          CLI_DESC="Dedicated MySQL client with 95%+ MySQL cheat sheet compatibility"
+          CLI_DESC="Dedicated MySQL client with 95%+ MySQL cheat sheet compatibility (PyMySQL-powered)"
           APP_NAME="ambivo-mysql-cli"
           CONVENIENCE_NAME="mysql"
           EXAMPLES="./ambivo-mysql-cli${{ matrix.ext }} -H localhost -u root -p
         ./ambivo-mysql-cli${{ matrix.ext }} -H myserver -u admin -d production"
         else
           CLI_NAME="Multi-Database CLI"
-          CLI_DESC="Universal database client supporting MySQL, PostgreSQL, SQLite, and DuckDB"
+          CLI_DESC="Universal database client supporting MySQL, PostgreSQL, SQLite, and DuckDB (PyMySQL-powered)"
           APP_NAME="ambivo-db-cli"
           CONVENIENCE_NAME="dbcli"
           EXAMPLES="./ambivo-db-cli${{ matrix.ext }} mysql -H localhost -u root -p -d mydb
@@ -643,10 +619,12 @@ jobs:
         ## Features
         - ✅ Native macOS application
         - ✅ No Python installation required
+        - ✅ Pure Python MySQL driver (no plugin issues)
         - ✅ Interactive setup for beginners
         - ✅ Database connectivity
         - ✅ CSV import with intelligent mapping
         - ✅ Command history and tab completion
+        - ✅ Fast startup with loading indicator
         
         Built by Hemant Gosain 'Sunny' at Ambivo
         Version: 2.1.0 | Build: ${{ env.BUILD_DATE }}
@@ -671,6 +649,7 @@ jobs:
         
         ## Features
         - ✅ Standalone executable (no Python required)
+        - ✅ Pure Python MySQL driver (no plugin issues)
         - ✅ Interactive setup for beginners
         - ✅ Database connectivity  
         - ✅ CSV import with intelligent mapping
@@ -720,6 +699,7 @@ jobs:
         
         echo ""
         echo "💡 Tip: Run without arguments for interactive setup"
+        echo "🚀 PyMySQL-powered for reliable MySQL connections"
         EOF
           else
             cat > install.sh << EOF
@@ -746,6 +726,7 @@ jobs:
         echo "export PATH=\\\$PATH:\$INSTALL_DIR"
         echo ""
         echo "💡 Tip: Run without arguments for interactive setup"
+        echo "🚀 PyMySQL-powered for reliable MySQL connections"
         EOF
           fi
           chmod +x install.sh
@@ -773,6 +754,7 @@ jobs:
         echo Or add manually in System Properties ^> Environment Variables
         echo.
         echo 💡 Tip: Run without arguments for interactive setup
+        echo 🚀 PyMySQL-powered for reliable MySQL connections
         pause
         EOF
         fi
@@ -851,7 +833,7 @@ jobs:
           else
             size_mb=$(python -c "print(f'{$size / 1024 / 1024:.1f}')" 2>/dev/null || echo "N/A")
           fi
-          echo "✅ Package created: $package_name (${size_mb}MB)"
+          echo "✅ Package created: $package_name (${size_mb}MB) - PyMySQL-powered"
         else
           echo "❌ Package creation failed: $package_name"
           exit 1
@@ -885,22 +867,30 @@ jobs:
     - name: Build Summary
       shell: bash
       run: |
-        echo "🎯 Build Summary"
-        echo "==============="
+        echo "🎯 Build Summary - PyMySQL-Powered"
+        echo "=================================="
         
         echo "📦 Separate packages created for each CLI:"
         echo ""
-        echo "MySQL CLI packages:"
+        echo "MySQL CLI packages (PyMySQL-powered):"
         echo "- ambivo-mysql-cli-linux-x64.tar.gz"
         echo "- ambivo-mysql-cli-macos-x64.dmg"
         echo "- ambivo-mysql-cli-macos-arm64.dmg"
         echo "- ambivo-mysql-cli-windows-x64.zip"
         echo ""
-        echo "Multi-Database CLI packages:"
+        echo "Multi-Database CLI packages (PyMySQL-powered):"
         echo "- ambivo-db-cli-linux-x64.tar.gz"
         echo "- ambivo-db-cli-macos-x64.dmg"
         echo "- ambivo-db-cli-macos-arm64.dmg"
         echo "- ambivo-db-cli-windows-x64.zip"
+        echo ""
+        echo "🔧 Key Improvements:"
+        echo "- ✅ Pure Python MySQL driver (PyMySQL)"
+        echo "- ✅ No authentication plugin issues"
+        echo "- ✅ No locale dependency problems"
+        echo "- ✅ Faster startup on macOS with loading indicator"
+        echo "- ✅ Better PyInstaller compatibility"
+        echo "- ✅ Smaller binary sizes"
         echo ""
         echo "🎉 All builds completed successfully!"
         echo "📦 Artifacts uploaded and ready for download"
@@ -912,4 +902,6 @@ jobs:
           echo "- Just the MySQL CLI if they only need MySQL support"
           echo "- Just the Multi-DB CLI if they need multiple database support"
           echo "- Both if they want specialized tools for different use cases"
+          echo ""
+          echo "All packages use PyMySQL for reliable MySQL connections!"
         fi

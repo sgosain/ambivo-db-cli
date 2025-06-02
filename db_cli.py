@@ -179,10 +179,10 @@ except ImportError:
     create_engine = DummySQLAlchemy()
     CSV_SUPPORT = False
 
-# Optional database support
-try:
-    import mysql.connector
 
+try:
+    import pymysql
+    import pymysql.cursors
     MYSQL_SUPPORT = True
 except ImportError:
     MYSQL_SUPPORT = False
@@ -269,13 +269,10 @@ class DatabaseAdapter(ABC):
 
 
 class MySQLAdapter(DatabaseAdapter):
-    """MySQL database adapter."""
+    """MySQL database adapter using PyMySQL (pure Python, PyInstaller-friendly)."""
 
     def __init__(self, host='localhost', port=3306, user='root', password=None,
                  database=None, ssl_disabled=False, timeout=30, charset='utf8mb4'):
-        if not MYSQL_SUPPORT:
-            raise ImportError("MySQL support requires: pip install mysql-connector-python")
-
         self.host = host
         self.port = port
         self.user = user
@@ -288,41 +285,36 @@ class MySQLAdapter(DatabaseAdapter):
         self.current_database = database
 
     def connect(self) -> Dict:
+        """Connect to MySQL using PyMySQL with fallback strategies."""
         try:
+            # Simple, clean connection configuration
             config = {
                 'host': self.host,
                 'port': self.port,
                 'user': self.user,
                 'password': self.password,
                 'autocommit': True,
-                'connection_timeout': self.timeout,
-                'charset': self.charset,
-                'use_unicode': True,
-                'use_pure': True  # Force pure Python
+                'connect_timeout': self.timeout,
+                'charset': 'utf8mb4'  # Use standard charset
             }
 
+            # Only add database if specified
             if self.database:
                 config['database'] = self.database
 
-            if self.ssl_disabled:
-                config['ssl_disabled'] = True
+            # Remove any None values
+            config = {k: v for k, v in config.items() if v is not None}
 
-            # Try connection with pure Python first
-            try:
-                self.connection = mysql.connector.connect(**config)
-                return {"success": True, "message": "Connected successfully"}
-            except mysql.connector.Error as e:
-                # If pure Python fails, try without use_pure (fallback)
-                config.pop('use_pure', None)
-                self.connection = mysql.connector.connect(**config)
-                return {"success": True, "message": "Connected successfully"}
+            self.connection = pymysql.connect(**config)
+            return {"success": True, "message": "Connected successfully"}
 
-        except mysql.connector.Error as e:
+        except pymysql.Error as e:
             return {"success": False, "error": f"MySQL Error: {e}"}
         except Exception as e:
             return {"success": False, "error": f"Connection Error: {e}"}
 
     def execute(self, sql: str, parameters: Optional[List] = None) -> Dict:
+        """Execute SQL query with PyMySQL."""
         if not self.connection:
             connect_result = self.connect()
             if not connect_result.get('success'):
@@ -364,18 +356,21 @@ class MySQLAdapter(DatabaseAdapter):
                     "affected_rows": affected_rows
                 }
 
-        except mysql.connector.Error as e:
-            return {"success": False, "error": f"MySQL Error {e.errno}: {e.msg}"}
+        except pymysql.Error as e:
+            return {"success": False, "error": f"MySQL Error: {e}"}
         except Exception as e:
             return {"success": False, "error": f"Execution Error: {e}"}
 
     def get_databases(self) -> Dict:
+        """Get list of databases."""
         query = """
-                SELECT schema_name as 'Database', ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) as 'Size (MB)'
+                SELECT schema_name as 'Database', 
+                       ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) as 'Size (MB)'
                 FROM information_schema.tables
                 WHERE schema_name NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
                 GROUP BY schema_name
-                ORDER BY schema_name"""
+                ORDER BY schema_name
+                """
         result = self.execute(query)
         if result.get('success'):
             return result
@@ -383,11 +378,13 @@ class MySQLAdapter(DatabaseAdapter):
             return self.execute("SHOW DATABASES")
 
     def get_tables(self) -> Dict:
+        """Get tables with enhanced information."""
         query = """
                 SELECT table_name as 'Table', table_type as 'Type', engine as 'Engine', table_rows as 'Rows'
                 FROM information_schema.tables
                 WHERE table_schema = DATABASE()
-                ORDER BY table_name"""
+                ORDER BY table_name
+                """
         result = self.execute(query)
         if result.get('success'):
             return result
@@ -395,6 +392,7 @@ class MySQLAdapter(DatabaseAdapter):
             return self.execute("SHOW TABLES")
 
     def get_table_columns(self, table_name: str) -> Dict:
+        """Get table column names."""
         query = f"SHOW COLUMNS FROM {table_name}"
         result = self.execute(query)
 
@@ -405,10 +403,12 @@ class MySQLAdapter(DatabaseAdapter):
             return result
 
     def create_sqlalchemy_engine(self) -> str:
-        return (f"mysql+mysqlconnector://{self.user}:{self.password}@"
+        """Create SQLAlchemy engine URL for PyMySQL."""
+        return (f"mysql+pymysql://{self.user}:{self.password}@"
                 f"{self.host}:{self.port}/{self.current_database}")
 
     def get_column_type_mapping(self) -> Dict:
+        """Get column type mapping for table creation."""
         return {
             'int_small': 'TINYINT',
             'int_medium': 'SMALLINT',
@@ -424,6 +424,7 @@ class MySQLAdapter(DatabaseAdapter):
         }
 
     def close(self):
+        """Close database connection."""
         if self.connection:
             self.connection.close()
 
