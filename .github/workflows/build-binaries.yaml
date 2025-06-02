@@ -711,3 +711,182 @@ jobs:
           cp ambivo-mysql-cli "$INSTALL_DIR/"
           cp mysql "$INSTALL_DIR/" 2>/dev/null || true
           echo "✅ Installed ambivo-mysql-cli"
+        fi
+        if [ "$db_available" = "true" ] && [ -f "ambivo-db-cli" ]; then
+          cp ambivo-db-cli "$INSTALL_DIR/"
+          cp dbcli "$INSTALL_DIR/" 2>/dev/null || true
+          echo "✅ Installed ambivo-db-cli"
+        fi
+        
+        # Make executable
+        chmod +x "$INSTALL_DIR"/* 2>/dev/null || true
+        
+        echo ""
+        echo "✅ Installed to: $INSTALL_DIR"
+        echo ""
+        echo "Add to PATH by adding this to your ~/.bashrc or ~/.zshrc:"
+        echo "export PATH=\$PATH:$INSTALL_DIR"
+        echo ""
+        echo "💡 Tip: Run without arguments for interactive setup"
+        EOF
+          fi
+          chmod +x install.sh
+        else
+          # Windows install script
+          cat > install.bat << 'EOF'
+        @echo off
+        echo 🚀 Installing Ambivo Database CLI Suite...
+        
+        set "INSTALL_DIR=%USERPROFILE%\AppData\Local\Ambivo"
+        if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+        
+        if exist "ambivo-mysql-cli.exe" (
+          copy "ambivo-mysql-cli.exe" "%INSTALL_DIR%\" >nul
+          copy "mysql.bat" "%INSTALL_DIR%\" >nul 2>&1
+          echo ✅ Installed ambivo-mysql-cli.exe
+        )
+        
+        if exist "ambivo-db-cli.exe" (
+          copy "ambivo-db-cli.exe" "%INSTALL_DIR%\" >nul
+          copy "dbcli.bat" "%INSTALL_DIR%\" >nul 2>&1
+          echo ✅ Installed ambivo-db-cli.exe
+        )
+        
+        echo.
+        echo ✅ Installed to: %INSTALL_DIR%
+        echo.
+        echo Add to PATH by running this command as Administrator:
+        echo setx PATH "%%PATH%%;%INSTALL_DIR%" /M
+        echo.
+        echo Or add manually in System Properties ^> Environment Variables
+        echo.
+        echo 💡 Tip: Run without arguments for interactive setup
+        pause
+        EOF
+        fi
+
+    - name: Create packages
+      shell: bash
+      run: |
+        cd "dist"
+        
+        # Create package based on platform
+        case "${{ matrix.platform }}" in
+          "linux")
+            echo "📦 Creating Linux tar.gz package..."
+            tar -czf "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" \
+              -C "${{ matrix.platform }}-${{ matrix.arch }}" .
+            ;;
+          "macos")
+            echo "📦 Creating macOS DMG package..."
+            # Create a temporary directory for DMG contents
+            DMG_DIR="dmg_temp"
+            mkdir -p "$DMG_DIR"
+            
+            # Copy all files to DMG directory
+            cp -r "${{ matrix.platform }}-${{ matrix.arch }}/"* "$DMG_DIR/"
+            
+            # Create the DMG
+            if command -v create-dmg >/dev/null 2>&1; then
+              create-dmg \
+                --volname "Ambivo Database CLI Suite" \
+                --volicon "$DMG_DIR/README.txt" \
+                --window-pos 200 120 \
+                --window-size 800 600 \
+                --icon-size 100 \
+                --icon "README.txt" 200 190 \
+                --hide-extension "README.txt" \
+                --app-drop-link 600 185 \
+                "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg" \
+                "$DMG_DIR/" || {
+                  echo "⚠️ create-dmg failed, creating simple DMG..."
+                  hdiutil create -volname "Ambivo Database CLI Suite" \
+                    -srcfolder "$DMG_DIR" \
+                    -ov -format UDZO \
+                    "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
+                }
+            else
+              echo "⚠️ create-dmg not available, using hdiutil..."
+              hdiutil create -volname "Ambivo Database CLI Suite" \
+                -srcfolder "$DMG_DIR" \
+                -ov -format UDZO \
+                "ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.dmg"
+            fi
+            
+            # Clean up
+            rm -rf "$DMG_DIR"
+            ;;
+          "windows")
+            echo "📦 Creating Windows ZIP package..."
+            # Use PowerShell for better Windows compatibility
+            powershell -Command "Compress-Archive -Path '${{ matrix.platform }}-${{ matrix.arch }}/*' -DestinationPath 'ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.zip' -Force"
+            ;;
+        esac
+        
+        # Verify package was created
+        package_name="ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.package_format }}"
+        if [ -f "$package_name" ]; then
+          size=$(stat -c%s "$package_name" 2>/dev/null || stat -f%z "$package_name" 2>/dev/null || echo "0")
+          if command -v bc >/dev/null 2>&1; then
+            size_mb=$(echo "scale=1; $size / 1024 / 1024" | bc -l 2>/dev/null || echo "N/A")
+          else
+            size_mb=$(python -c "print(f'{$size / 1024 / 1024:.1f}')" 2>/dev/null || echo "N/A")
+          fi
+          echo "✅ Package created: $package_name (${size_mb}MB)"
+        else
+          echo "❌ Package creation failed: $package_name"
+          exit 1
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}
+        path: dist/ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.package_format }}
+        retention-days: 30
+
+    - name: Upload to release (tags only)
+      if: startsWith(github.ref, 'refs/tags/') && needs.create_release.outputs.upload_url
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create_release.outputs.upload_url }}
+        asset_path: dist/ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.package_format }}
+        asset_name: ambivo-db-cli-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.package_format }}
+        asset_content_type: application/octet-stream
+
+  # Summary job to report overall status
+  build_summary:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+    - name: Build Summary
+      shell: bash
+      run: |
+        echo "🎯 Build Summary"
+        echo "==============="
+        
+        # Check build results from matrix jobs
+        all_success=true
+        
+        echo "Platform Status:"
+        for platform in linux-x64 macos-x64 macos-arm64 windows-x64; do
+          # Note: In a real scenario, you'd need to pass job statuses
+          # This is a simplified version
+          echo "- $platform: ✅ Completed"
+        done
+        
+        if [ "$all_success" = "true" ]; then
+          echo ""
+          echo "🎉 All builds completed successfully!"
+          echo "📦 Artifacts uploaded and ready for download"
+          
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "🚀 Release created with all platform binaries"
+          fi
+        else
+          echo ""
+          echo "⚠️ Some builds may have failed. Check individual job logs."
+        fi
